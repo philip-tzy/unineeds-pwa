@@ -1,0 +1,24 @@
+{
+  "name": "UniNeeds Hub",
+  "short_name": "UniNeeds",
+  "description": "All university needs in one place",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#003160",
+  "theme_color": "#003160",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
