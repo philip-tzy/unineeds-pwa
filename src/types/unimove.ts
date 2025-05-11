@@ -1,10 +1,10 @@
-
 export type RideStatus = 'searching' | 'accepting' | 'ongoing' | 'completed';
 
 export interface Order {
   id: string;
   customer_id: string;
   driver_id: string | null;
+  driver?: Driver | null;
   pickup_address: string | null;
   delivery_address: string | null;
   status: string | null;

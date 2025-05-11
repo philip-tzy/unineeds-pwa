@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,23 +18,38 @@ export const useDriverOrders = (userId: string | undefined) => {
     if (!userId) return;
     
     const loadPendingOrders = async () => {
-      const orders = await fetchPendingOrders();
+      const orders = await fetchPendingOrders(userId);
       setPendingOrders(orders);
     };
     
     loadPendingOrders();
     
     // Subscribe to new order events
-    const channel = subscribeToNewOrders((newOrder) => {
-      setPendingOrders(current => [...current, newOrder]);
+    const subscription = subscribeToNewOrders((newOrder) => {
+      setPendingOrders(current => {
+        // Check if the order is already in the list
+        if (current.some(o => o.id === newOrder.id)) {
+          return current;
+        }
+        return [...current, newOrder];
+      });
+      
       toast({
         title: "New Ride Request",
         description: "A new ride request is available",
       });
-    });
+      
+      // Play notification sound
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.play().catch(e => console.log('Auto-play prevented:', e));
+      } catch (e) {
+        console.log('Audio notification not supported');
+      }
+    }, userId);
     
     return () => {
-      supabase.removeChannel(channel);
+      subscription.unsubscribe();
     };
   }, [userId, toast]);
 
@@ -43,7 +57,7 @@ export const useDriverOrders = (userId: string | undefined) => {
   useEffect(() => {
     if (!currentOrder) return;
     
-    const channel = subscribeToOrderUpdates(currentOrder.id, (updatedOrder) => {
+    const subscription = subscribeToOrderUpdates(currentOrder.id, (updatedOrder) => {
       setCurrentOrder(updatedOrder);
       
       if (updatedOrder.status === 'cancelled') {
@@ -55,12 +69,12 @@ export const useDriverOrders = (userId: string | undefined) => {
         setStatus('searching');
         setCurrentOrder(null);
       }
-    });
+    }, userId);
     
     return () => {
-      supabase.removeChannel(channel);
+      subscription.unsubscribe();
     };
-  }, [currentOrder, toast]);
+  }, [currentOrder, toast, userId]);
 
   const acceptRide = async (order: Order) => {
     if (!userId) return;
@@ -68,12 +82,21 @@ export const useDriverOrders = (userId: string | undefined) => {
     setLoading(true);
     
     try {
+      console.log(`Driver ${userId} accepting order ${order.id}`);
       const { error } = await acceptRideOrder(order.id, userId);
       
       if (error) throw error;
       
-      setCurrentOrder(order);
+      // Immediately update the local state without waiting for subscription
+      setCurrentOrder({
+        ...order,
+        driver_id: userId,
+        status: 'accepted'
+      });
       setStatus('accepting');
+      
+      // Remove this order from pending orders list
+      setPendingOrders(current => current.filter(o => o.id !== order.id));
       
       toast({
         title: "Ride Accepted",

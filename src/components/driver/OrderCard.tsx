@@ -1,94 +1,127 @@
-
 import React from 'react';
-import { User, Star, X, Check, Navigation } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { MapPin, Clock, DollarSign } from 'lucide-react';
 import type { Order } from '@/types/unimove';
+import { Button } from '@/components/ui/button';
 
 interface OrderCardProps {
   order: Order;
   onAccept: (order: Order) => void;
   onDecline: (order: Order) => void;
-  loading?: boolean;
+  loading: boolean;
 }
 
-const OrderCard: React.FC<OrderCardProps> = ({ 
-  order, 
-  onAccept, 
-  onDecline, 
-  loading 
+const OrderCard: React.FC<OrderCardProps> = ({
+  order,
+  onAccept,
+  onDecline,
+  loading
 }) => {
-  const getCustomerName = (customerId: string) => {
-    return `Customer ${customerId.slice(0, 5)}`;
+  // Calculate estimated distance (mock implementation)
+  const estimatedDistance = () => {
+    if (!order.pickup_coordinates || !order.delivery_coordinates) return '-- km';
+    
+    // Simple distance formula (not accurate for real world)
+    const lat1 = order.pickup_coordinates[0];
+    const lon1 = order.pickup_coordinates[1];
+    const lat2 = order.delivery_coordinates[0];
+    const lon2 = order.delivery_coordinates[1];
+    
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1); 
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+    ; 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const d = R * c; // Distance in km
+    
+    return `${d.toFixed(1)} km`;
   };
-
-  const getCustomerRating = () => {
-    return (4 + Math.random()).toFixed(1);
+  
+  const deg2rad = (deg: number) => {
+    return deg * (Math.PI/180);
+  };
+  
+  // Calculate estimated time (mock implementation)
+  const estimatedTime = () => {
+    const avgSpeed = 30; // km/h
+    if (!order.pickup_coordinates || !order.delivery_coordinates) return '-- min';
+    
+    // Get distance
+    const distanceStr = estimatedDistance();
+    const distance = parseFloat(distanceStr.split(' ')[0]);
+    
+    // Calculate time in minutes
+    const timeMinutes = (distance / avgSpeed) * 60;
+    return `${Math.round(timeMinutes)} min`;
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-      <div className="flex justify-between mb-3">
-        <div className="flex items-center">
-          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mr-3">
-            <User size={20} className="text-gray-600" />
-          </div>
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+      <div className="p-4">
+        <div className="flex justify-between items-start mb-3">
           <div>
-            <p className="font-medium">{getCustomerName(order.customer_id)}</p>
-            <div className="flex items-center text-yellow-500 text-xs">
-              <Star size={12} className="mr-1" />
-              <span>{getCustomerRating()}</span>
+            <h3 className="font-medium text-gray-900">{order.customer?.name || 'Customer'}</h3>
+            <div className="mt-1 text-xs text-gray-500 flex items-center">
+              <Clock size={12} className="mr-1" />
+              <span>Requested {new Date(order.created_at || '').toLocaleTimeString()}</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-bold text-gray-900">${order.total_amount?.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 flex items-center justify-end">
+              <DollarSign size={12} className="mr-1" />
+              <span>Estimated fare</span>
             </div>
           </div>
         </div>
-        <div className="text-right">
-          <p className="font-bold text-[#003160]">${order.total_amount.toFixed(2)}</p>
-          <p className="text-xs text-gray-500">
-            {order.created_at
-              ? new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : 'Just now'}
-          </p>
-        </div>
-      </div>
-      
-      <div className="mb-3">
-        <div className="flex items-start mb-2">
-          <div className="mt-1 mr-3">
-            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+        
+        <div className="space-y-2 mb-4">
+          <div className="flex items-start">
+            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-500 mt-0.5 mr-2">
+              <MapPin size={12} />
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Pickup</div>
+              <div className="text-sm font-medium text-gray-900">{order.pickup_address}</div>
+            </div>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Pickup</p>
-            <p className="text-sm">{order.pickup_address || 'Unknown location'}</p>
+          
+          <div className="flex items-start">
+            <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500 mt-0.5 mr-2">
+              <MapPin size={12} />
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Destination</div>
+              <div className="text-sm font-medium text-gray-900">{order.delivery_address}</div>
+            </div>
           </div>
         </div>
         
-        <div className="flex items-start">
-          <div className="mt-1 mr-3">
-            <div className="w-2 h-2 rounded-full bg-red-500"></div>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Destination</p>
-            <p className="text-sm">{order.delivery_address || 'Unknown location'}</p>
-          </div>
+        <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
+          <div>Distance: {estimatedDistance()}</div>
+          <div>Estimated time: {estimatedTime()}</div>
         </div>
-      </div>
-      
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          className="flex-1 border-gray-300 text-gray-700"
-          onClick={() => onDecline(order)}
-        >
-          <X size={16} className="mr-1" />
-          Decline
-        </Button>
-        <Button
-          className="flex-1 bg-[#003160] hover:bg-[#002040] text-white"
-          onClick={() => onAccept(order)}
-          disabled={loading}
-        >
-          <Check size={16} className="mr-1" />
-          {loading ? 'Accepting...' : 'Accept'}
-        </Button>
+        
+        <div className="flex space-x-2">
+          <Button 
+            variant="outline" 
+            onClick={() => onDecline(order)}
+            className="flex-1"
+            disabled={loading}
+          >
+            Decline
+          </Button>
+          <Button 
+            onClick={() => onAccept(order)}
+            className="flex-1 bg-[#003160] hover:bg-[#002040]"
+            disabled={loading}
+          >
+            {loading ? "Accepting..." : "Accept"}
+          </Button>
+        </div>
       </div>
     </div>
   );

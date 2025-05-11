@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, UserCircle, Settings, LogOut, Mail, Phone, MapPin, Award, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,8 +22,7 @@ import {
 import SellerRoleSelection from "./pages/SellerRoleSelection";
 import DriverRoleSelection from "./pages/DriverRoleSelection";
 import RoleSelection from "./pages/RoleSelection";
-import { supabase } from '@/integrations/supabase/client';
-import UniMoveMap from '@/components/unimove/UniMoveMap';
+import SkillsManager from '@/components/freelancer/SkillsManager';
 
 const getRoleSpecificStats = (role: string, sellerType?: string | null, driverType?: string | null) => {
   switch (role) {
@@ -67,23 +66,6 @@ const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { toast } = useToast();
-  const [userRole, setUserRole] = useState<string | null>(null);
-  
-  useEffect(() => {
-    if (user) {
-      const fetchUserRole = async () => {
-        try {
-          const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-          setUserRole(data?.role || null);
-          console.log('User role:', data?.role);
-        } catch (error) {
-          console.error('Error fetching user role:', error);
-        }
-      };
-      
-      fetchUserRole();
-    }
-  }, [user]);
   
   const handleLogout = async () => {
     try {
@@ -103,10 +85,10 @@ const Profile: React.FC = () => {
     }
   };
   
-  const stats = getRoleSpecificStats(userRole || 'customer', user?.seller_type, user?.driver_type);
+  const stats = getRoleSpecificStats(user?.role || 'customer', user?.seller_type, user?.driver_type);
   
   const renderBottomNavigation = () => {
-    switch (userRole) {
+    switch (user?.role) {
       case 'driver':
         return <DriverBottomNavigation driverType={user?.driver_type} />;
       case 'seller':
@@ -142,13 +124,13 @@ const Profile: React.FC = () => {
               <UserCircle size={60} className="text-gray-500" />
             </div>
             <h2 className="mt-3 font-semibold text-lg">{user?.full_name || user?.name}</h2>
-            <p className="text-sm text-gray-500 capitalize">{userRole}</p>
-            {userRole === 'seller' && user?.seller_type && (
+            <p className="text-sm text-gray-500 capitalize">{user?.role}</p>
+            {user?.role === 'seller' && user?.seller_type && (
               <div className="mt-1 bg-blue-50 text-blue-600 text-xs px-2 py-1 rounded-full">
                 {user.seller_type === 'unishop' ? 'UniShop Seller' : 'UniFood Seller'}
               </div>
             )}
-            {userRole === 'driver' && user?.driver_type && (
+            {user?.role === 'driver' && user?.driver_type && (
               <div className="mt-1 bg-green-50 text-green-600 text-xs px-2 py-1 rounded-full">
                 {user.driver_type === 'unimove' ? 'UniMove Driver' : 'UniSend Driver'}
               </div>
@@ -189,11 +171,11 @@ const Profile: React.FC = () => {
           >
             <span>Switch role</span>
             <span className="text-[#9b87f5]">
-              {userRole?.charAt(0).toUpperCase() + userRole.slice(1)}
+              {user?.role.charAt(0).toUpperCase() + user?.role.slice(1)}
             </span>
           </Button>
           
-          {userRole === 'seller' && (
+          {user?.role === 'seller' && (
             <Button
               onClick={() => navigate('/seller-role-selection')}
               variant="outline"
@@ -206,7 +188,7 @@ const Profile: React.FC = () => {
             </Button>
           )}
           
-          {userRole === 'driver' && (
+          {user?.role === 'driver' && (
             <Button
               onClick={() => navigate('/driver-role-selection')}
               variant="outline"
@@ -245,6 +227,8 @@ const Profile: React.FC = () => {
       </div>
       
       {renderBottomNavigation()}
+      
+      <SkillsManager />
     </div>
   );
 };

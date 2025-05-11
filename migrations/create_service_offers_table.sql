@@ -58,4 +58,16 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER update_service_offers_updated_at
 BEFORE UPDATE ON service_offers
 FOR EACH ROW
-EXECUTE FUNCTION update_service_offers_updated_at(); 
+EXECUTE FUNCTION update_service_offers_updated_at();
+
+-- Aktifkan RLS jika belum
+ALTER TABLE public.service_offers ENABLE ROW LEVEL SECURITY;
+
+-- Hapus policy lama jika ada
+DROP POLICY IF EXISTS "Customers can create offers" ON public.service_offers;
+
+-- Buat policy baru dengan syntax yang benar
+CREATE POLICY "Customers can create offers"
+  ON public.service_offers
+  FOR INSERT
+  WITH CHECK (auth.uid() = customer_id); 

@@ -1,17 +1,11 @@
-
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Bell, DollarSign, User, LogOut } from 'lucide-react';
+import { Home, Bell, DollarSign, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { fetchPendingOrders } from '@/services/driver/OrderRepository';
+import { subscribeToNewOrders } from '@/services/driver/OrderSubscriptionService';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
 
 interface NavItemProps {
@@ -19,10 +13,11 @@ interface NavItemProps {
   icon: React.ReactNode;
   label: string;
   isActive: boolean;
+  badge?: number;
   onClick?: () => void;
 }
 
-const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick }) => {
+const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, badge, onClick }) => {
   if (onClick) {
     return (
       <button 
@@ -33,10 +28,15 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick })
         )}
       >
         <div className={cn(
-          "transition-transform duration-300",
+          "transition-transform duration-300 relative",
           isActive ? "scale-110" : "scale-100"
         )}>
           {icon}
+          {badge && badge > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+              {badge > 99 ? '99+' : badge}
+            </span>
+          )}
         </div>
         <span className="text-[10px] font-medium">{label}</span>
       </button>
@@ -52,10 +52,15 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick })
       )}
     >
       <div className={cn(
-        "transition-transform duration-300",
+        "transition-transform duration-300 relative",
         isActive ? "scale-110" : "scale-100"
       )}>
         {icon}
+        {badge && badge > 0 && (
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
       </div>
       <span className="text-[10px] font-medium">{label}</span>
     </Link>
@@ -65,32 +70,61 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick })
 const DriverBottomNavigation: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [path, setPath] = useState(location.pathname);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   
   // Update the path state when location changes
   useEffect(() => {
     setPath(location.pathname);
   }, [location.pathname]);
   
-  const handleLogout = async () => {
-    try {
-      await logout();
-      toast({
-        title: "Success",
-        description: "You have been logged out successfully",
-      });
-      navigate('/login');
-    } catch (error) {
-      console.error('Error logging out:', error);
-      toast({
-        title: "Error",
-        description: "There was a problem logging out",
-        variant: "destructive",
-      });
+  // Fetch pending orders count and subscribe to new orders
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const loadPendingOrders = async () => {
+      try {
+        const orders = await fetchPendingOrders();
+        setPendingRequestsCount(orders.length);
+      } catch (error) {
+        console.error('Error fetching pending orders count:', error);
+      }
+    };
+    
+    loadPendingOrders();
+    
+    // Subscribe to new orders to update badge count
+    const channel = subscribeToNewOrders((newOrder) => {
+      setPendingRequestsCount(prev => prev + 1);
+      
+      // Play notification sound if not on the requests page
+      if (!path.includes('/driver/requests')) {
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(e => console.log('Auto-play prevented:', e));
+        } catch (e) {
+          console.log('Audio notification not supported');
+        }
+      }
+    });
+    
+    // Refresh count every 30 seconds
+    const intervalId = setInterval(loadPendingOrders, 30000);
+    
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+    };
+  }, [user?.id, path]);
+  
+  // Reset badge count when navigating to requests page
+  useEffect(() => {
+    if (path.includes('/driver/requests')) {
+      setPendingRequestsCount(0);
     }
-  };
+  }, [path]);
   
   return (
     <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 flex items-center justify-around px-4 z-50 animate-fade-in">
@@ -104,36 +138,21 @@ const DriverBottomNavigation: React.FC = () => {
         to="/driver/requests" 
         icon={<Bell size={20} />} 
         label="Requests" 
-        isActive={path.includes('/driver/orders') || path.includes('/driver/unimove') || path.includes('/driver/unisend')}
+        isActive={path.includes('/driver/requests')}
+        badge={pendingRequestsCount}
       />
       <NavItem 
         to="/driver/earnings" 
         icon={<DollarSign size={20} />} 
         label="Earnings" 
-        isActive={path === '/driver/earnings'}
+        isActive={path.includes('/driver/earnings')}
       />
-      <DropdownMenu>
-        <DropdownMenuTrigger className="flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200 text-gray-500">
-          <div className={cn(
-            "transition-transform duration-300",
-            path === '/profile' ? "scale-110" : "scale-100"
-          )}>
-            <User size={20} />
-          </div>
-          <span className="text-[10px] font-medium">Account</span>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[160px]">
-          <DropdownMenuLabel>Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link to="/profile" className="cursor-pointer w-full">Profile</Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem className="text-red-500 cursor-pointer" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Logout</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <NavItem 
+        to="/driver/profile" 
+        icon={<User size={20} />} 
+        label="Profile" 
+        isActive={path.includes('/driver/profile')}
+      />
     </div>
   );
 };

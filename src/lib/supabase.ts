@@ -28,6 +28,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+// Add debug logs to troubleshoot the database connection
+console.log('Supabase URL:', supabaseUrl);
+// DO NOT log the anon key in production, this is just for troubleshooting
+console.log('Supabase Anon Key set:', !!supabaseAnonKey);
+
 export const getCurrentUser = async () => {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error) throw error;

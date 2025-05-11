@@ -15,6 +15,8 @@ import Register from "./pages/Register";
 import DriverDashboard from "./pages/driver/Dashboard";
 import DriverUniMove from "./pages/driver/UniMove";
 import DriverUniSend from "./pages/driver/UniSend";
+import DriverEarningsPage from "./pages/driver/Earnings";
+import DriverProfilePage from "./pages/driver/Profile";
 import UniShopSellerDashboard from "./pages/seller/unishop/Dashboard";
 import UniFoodSellerDashboard from "./pages/seller/unifood/Dashboard";
 import UniFoodMenu from "./pages/seller/unifood/Menu";
@@ -35,6 +37,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import NotificationProvider from "./context/NotificationContext";
 import ServiceDetail from '@/pages/ServiceDetail';
 import CustomerServiceOffers from '@/pages/customer/ServiceOffers';
+import DriverRequestsPage from "./pages/driver/Requests";
 
 const queryClient = new QueryClient();
 
@@ -159,6 +162,27 @@ const AppRoutes = () => {
         <ProtectedRoute>
           <RoleRoute allowedRoles={['driver']}>
             <DriverDashboard />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/driver/requests" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['driver']}>
+            <DriverRequestsPage />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/driver/earnings" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['driver']}>
+            <DriverEarningsPage />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/driver/profile" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['driver']}>
+            <DriverProfilePage />
           </RoleRoute>
         </ProtectedRoute>
       } />

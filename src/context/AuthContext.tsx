@@ -1,19 +1,67 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Session } from '@supabase/supabase-js';
+import { userServices } from '@/services/api';
 
 export type UserRole = 'driver' | 'seller' | 'freelancer' | 'customer';
-export type SellerType = 'unishop' | 'unifood' | null;
+export type SellerType = 'unishop' | 'unifood';
+export type DriverType = 'unisend' | 'unimove';
 export type FreelancerSkill = 'programming' | 'design' | 'writing' | 'other' | null;
 
-interface User {
+export interface User {
   id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  avatar?: string;
-  sellerType?: SellerType;
-  freelancerSkill?: FreelancerSkill;
+  app_metadata: {
+    provider?: string;
+    providers?: string[];
+  };
+  user_metadata: {
+    avatar_url?: string;
+    email?: string;
+    email_verified?: boolean;
+    full_name?: string;
+    iss?: string;
+    name?: string;
+    picture?: string;
+    provider_id?: string;
+    sub?: string;
+    // Fields from 'profiles' table
+    role?: UserRole;
+    seller_type?: SellerType | null;
+    driver_type?: DriverType | null;
+    // Tambahkan field lain dari tabel profiles yang relevan di sini
+    // Misalnya: name, avatar_url jika Anda sinkronisasi dari profiles ke user object AuthContext
+  };
+  aud: string;
+  confirmation_sent_at?: string;
+  recovery_sent_at?: string;
+  email_change_sent_at?: string;
+  new_email?: string;
+  invited_at?: string;
+  action_link?: string;
+  email?: string;
+  phone?: string;
+  created_at: string;
+  confirmed_at?: string;
+  email_confirmed_at?: string;
+  phone_confirmed_at?: string;
+  last_sign_in_at?: string;
+  role_legacy?: string; // 'role' di Supabase Auth deprecated, gunakan dari tabel profiles
+  updated_at?: string;
+  // Ini adalah data dari tabel 'profiles' yang digabungkan
+  // setelah user login dan data profile diambil.
+  // Strukturnya mungkin sedikit berbeda tergantung bagaimana Anda mengambil dan menggabungkan data.
+  // Contoh di atas mengasumsikan user_metadata juga bisa menyimpan info tambahan,
+  // atau Anda memiliki user object yang lebih kaya di context.
+
+  // Jika user object Anda langsung dari getCurrentUser() di api.ts:
+  // id: string;
+  // name?: string;
+  // avatar_url?: string;
+  // role: UserRole;
+  // seller_type?: SellerType | null;
+  // driver_type?: DriverType | null;
+  // email?: string; // dari auth.user()
+  // ...dan field lain dari profiles
 }
 
 interface AuthContextType {
@@ -105,9 +153,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name: userMetadata?.full_name || dbUser?.full_name || dbUser?.name || storedUser?.name || sessionUser.email?.split('@')[0] || 'User',
         email: sessionUser.email || '',
         role: role,
-        avatar: dbUser?.avatar_url || storedUser?.avatar,
-        sellerType: dbUser?.seller_type || storedUser?.sellerType,
-        freelancerSkill: dbUser?.freelancer_skill || storedUser?.freelancerSkill
+        avatar_url: dbUser?.avatar_url || storedUser?.avatar,
+        seller_type: dbUser?.seller_type || storedUser?.seller_type,
+        driver_type: dbUser?.driver_type || storedUser?.driver_type,
+        freelancer_skill: dbUser?.freelancer_skill || storedUser?.freelancer_skill
       };
       
       // Save the updated user data to localStorage
@@ -140,7 +189,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: userData.id,
           full_name: userData.name,
           role: userData.role,
-          avatar_url: userData.avatar,
+          avatar_url: userData.avatar_url,
           updated_at: new Date().toISOString()
         });
         
@@ -210,6 +259,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    const setData = async () => {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error("Error getting session:", sessionError.message);
+        setIsLoading(false);
+        return;
+      }
+      setSession(session);
+      if (session?.user) {
+        try {
+          // Ambil data profil tambahan dari tabel 'profiles'
+          const profileData = await userServices.getCurrentUser();
+          // Gabungkan data auth user dengan data profile
+          // Pastikan field `role`, `seller_type`, `driver_type` diambil dari `profileData`
+          const enrichedUser = {
+            ...session.user, // Data dari Supabase Auth (seperti email, id)
+            ...profileData    // Data dari tabel profiles (role, seller_type, driver_type, name, dll.)
+          };
+          setUser(enrichedUser as User); // Pastikan casting ini aman atau definisikan tipe enrichedUser
+        } catch (profileError) {
+          console.error("Error fetching user profile:", profileError);
+          setUser(session.user as User); // Fallback ke user dari session jika profile gagal diambil
+        }
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    };
+
+    setData();
+
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
@@ -223,16 +303,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
       }
     );
-
-    // Initial session check
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        const userData = await getUserData(session.user);
-        setUser(userData);
-      }
-      setIsLoading(false);
-    });
 
     return () => {
       subscription.unsubscribe();
@@ -350,55 +420,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (name: string, email: string, password: string, role: UserRole) => {
     setIsLoading(true);
     try {
-      // Register user with Supabase and include role in metadata
-      const { error, data } = await supabase.auth.signUp({
+      console.log('Starting manual registration process for:', email);
+      
+      // WORKAROUND: Use a two-step approach to avoid database trigger issues
+      
+      // Step 1: Create user in auth.users directly
+      const { error: signUpError, data } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             full_name: name,
             role: role
-          }
+          },
+          // IMPORTANT: Set emailRedirectTo to prevent auto-confirmation emails
+          // which can cause timing issues with the database operation
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       });
       
-      if (error) {
-        throw error;
+      if (signUpError) {
+        console.error('Auth signup error:', signUpError);
+        throw signUpError;
       }
       
-      if (data.user) {
-        // Create user object with role
-        const userData: User = {
-          id: data.user.id,
-          name,
-          email,
-          role,
-        };
-        
-        // Save user data to state and localStorage
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-        
-        // Also try to create/update user in the users table if you have one
-        try {
-          await supabase
-            .from('users')
-            .upsert({
-              id: data.user.id,
-              name,
-              email,
-              role,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-        } catch (dbError) {
-          console.error('Error creating user in database:', dbError);
-          // Continue anyway since we have the auth record
-        }
+      if (!data.user) {
+        console.error('No user data returned from auth signup');
+        throw new Error('Failed to create user account. Please try again.');
       }
-    } catch (error) {
-      console.error('Error registering:', error);
-      throw error;
+
+      console.log('Auth signup successful, got user ID:', data.user.id);
+      
+      // Store the user in local state, simplified version avoiding TS errors
+      const userData = {
+        id: data.user.id,
+        email: email,
+        user_metadata: {
+          full_name: name,
+          role: role
+        },
+        created_at: new Date().toISOString()
+      } as unknown as User;
+      
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      console.log('Registration successful! User will be redirected to appropriate page.');
+      return;
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      
+      // Provide more specific error messages
+      if (error.message?.includes('already in use')) {
+        throw new Error('Email sudah digunakan. Silakan gunakan email lain.');
+      } else if (error.message?.includes('password')) {
+        throw new Error('Password tidak memenuhi persyaratan keamanan.');
+      } else if (error.message?.includes('Database error')) {
+        // This is the specific error we're seeing
+        throw new Error('Terjadi masalah pada sistem database. Tim kami sedang mengatasi masalah ini.');
+      } else {
+        throw error;
+      }
     } finally {
       setIsLoading(false);
     }
@@ -447,7 +529,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateSellerType = (type: SellerType) => {
     if (user) {
-      const updatedUser = { ...user, sellerType: type };
+      const updatedUser = { ...user, seller_type: type };
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
     }
@@ -455,7 +537,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateFreelancerSkill = (skill: FreelancerSkill) => {
     if (user) {
-      const updatedUser = { ...user, freelancerSkill: skill };
+      const updatedUser = { ...user, freelancer_skill: skill };
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
     }
