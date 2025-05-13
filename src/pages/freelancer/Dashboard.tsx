@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -14,54 +14,68 @@ import {
   Handshake,
   Bell,
   ListChecks,
-  Layers
+  Layers,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FreelancerBottomNavigation from '@/components/freelancer/BottomNavigation';
-
-const mockProjects = [
-  { 
-    id: 1, 
-    title: 'Website Redesign', 
-    client: 'Tech Solutions LLC', 
-    deadline: '2 days left', 
-    price: 450,
-    status: 'In Progress'
-  },
-  { 
-    id: 2, 
-    title: 'Mobile App UI Design', 
-    client: 'Startup Ventures', 
-    deadline: '5 days left', 
-    price: 650,
-    status: 'In Progress'
-  },
-];
-
-const mockRequests = [
-  { 
-    id: 1, 
-    title: 'WordPress Website Development', 
-    client: 'John Miller', 
-    budget: '$300-500',
-    deadline: '7 days',
-    description: 'Need a simple 5-page website with responsive design.',
-    skills: ['WordPress', 'CSS', 'PHP']
-  },
-  { 
-    id: 2, 
-    title: 'Logo Design', 
-    client: 'Sarah Johnson', 
-    budget: '$100-200',
-    deadline: '3 days',
-    description: 'Clean, modern logo for a new coffee shop.',
-    skills: ['Illustrator', 'Branding', 'Typography']
-  },
-];
+import { 
+  getFreelancerMetrics, 
+  subscribeToFreelancerMetrics,
+  FreelancerMetrics,
+  initializeFreelancerMetrics
+} from '@/services/freelancerMetrics';
+import { formatCurrency } from '@/lib/utils';
 
 const FreelancerDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState<FreelancerMetrics | null>(null);
+  
+  useEffect(() => {
+    if (user?.id) {
+      // Initial fetch of metrics
+      fetchMetrics();
+      
+      // Subscribe to real-time updates
+      const unsubscribe = subscribeToFreelancerMetrics(user.id, (updatedMetrics) => {
+        setMetrics(updatedMetrics);
+        setLoading(false);
+      });
+      
+      // Cleanup subscription on unmount
+      return () => {
+        unsubscribe();
+      };
+    }
+  }, [user]);
+  
+  const fetchMetrics = async () => {
+    if (!user?.id) return;
+    
+    setLoading(true);
+    try {
+      // Try to fetch existing metrics
+      const metricsData = await getFreelancerMetrics(user.id);
+      
+      if (!metricsData) {
+        // If no metrics exist, initialize them
+        console.log('No metrics found, initializing...');
+        await initializeFreelancerMetrics(user.id);
+        
+        // Try fetching again
+        const retriedMetrics = await getFreelancerMetrics(user.id);
+        setMetrics(retriedMetrics);
+      } else {
+        setMetrics(metricsData);
+      }
+    } catch (error) {
+      console.error('Error fetching freelancer metrics:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
@@ -89,7 +103,15 @@ const FreelancerDashboard: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <p className="text-sm text-gray-500">Available Balance</p>
-              <p className="text-xl font-bold text-[#003160]">$1,250.00</p>
+              {loading ? (
+                <div className="flex justify-center items-center h-8">
+                  <Loader2 size={20} className="animate-spin text-[#003160]" />
+                </div>
+              ) : (
+                <p className="text-xl font-bold text-[#003160]">
+                  {formatCurrency(metrics?.available_balance || 0)}
+                </p>
+              )}
             </div>
             <Button className="bg-[#003160] text-white hover:bg-[#002040]">
               Withdraw
@@ -103,28 +125,48 @@ const FreelancerDashboard: React.FC = () => {
               <Briefcase size={16} className="text-[#003160] mr-1" />
               <span className="text-xs text-gray-500">Active Jobs</span>
             </div>
-            <p className="text-lg font-bold">2</p>
+            {loading ? (
+              <div className="flex justify-center items-center h-7">
+                <Loader2 size={16} className="animate-spin text-[#003160]" />
+              </div>
+            ) : (
+              <p className="text-lg font-bold">{metrics?.active_jobs || 0}</p>
+            )}
           </div>
           <div className="bg-white p-3 rounded-lg shadow-sm text-center">
             <div className="flex items-center justify-center mb-1">
               <DollarSign size={16} className="text-[#003160] mr-1" />
               <span className="text-xs text-gray-500">Earnings</span>
             </div>
-            <p className="text-lg font-bold">$2,480</p>
+            {loading ? (
+              <div className="flex justify-center items-center h-7">
+                <Loader2 size={16} className="animate-spin text-[#003160]" />
+              </div>
+            ) : (
+              <p className="text-lg font-bold">{formatCurrency(metrics?.total_earnings || 0)}</p>
+            )}
           </div>
           <div className="bg-white p-3 rounded-lg shadow-sm text-center">
             <div className="flex items-center justify-center mb-1">
               <Star size={16} className="text-[#003160] mr-1" />
               <span className="text-xs text-gray-500">Rating</span>
             </div>
-            <p className="text-lg font-bold">4.9</p>
+            {loading ? (
+              <div className="flex justify-center items-center h-7">
+                <Loader2 size={16} className="animate-spin text-[#003160]" />
+              </div>
+            ) : (
+              <p className="text-lg font-bold">
+                {metrics?.total_reviews ? metrics.average_rating.toFixed(1) : '-'}
+              </p>
+            )}
           </div>
         </div>
       </div>
       
       {/* Actions */}
-      <div className="p-4 bg-white shadow-sm">
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 text-center">
+      <div className="p-4 mt-2">
+        <div className="grid grid-cols-3 gap-3 text-center">
           <button 
             onClick={() => navigate('/freelancer/jobs')}
             className="flex flex-col items-center justify-center space-y-1 p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -133,33 +175,6 @@ const FreelancerDashboard: React.FC = () => {
               <Briefcase size={20} className="text-[#003160]" />
             </div>
             <span className="text-xs">Jobs</span>
-          </button>
-          <button 
-            onClick={() => navigate('/freelancer/messages')}
-            className="flex flex-col items-center justify-center space-y-1 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <div className="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center">
-              <MessageSquare size={20} className="text-[#003160]" />
-            </div>
-            <span className="text-xs">Messages</span>
-          </button>
-          <button 
-            onClick={() => navigate('/freelancer/calendar')}
-            className="flex flex-col items-center justify-center space-y-1 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <div className="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center">
-              <Calendar size={20} className="text-[#003160]" />
-            </div>
-            <span className="text-xs">Calendar</span>
-          </button>
-          <button 
-            onClick={() => navigate('/freelancer/stats')}
-            className="flex flex-col items-center justify-center space-y-1 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <div className="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center">
-              <BarChart3 size={20} className="text-[#003160]" />
-            </div>
-            <span className="text-xs">Stats</span>
           </button>
 
           <button 
@@ -185,83 +200,50 @@ const FreelancerDashboard: React.FC = () => {
       </div>
       
       {/* Current Projects */}
-      <div className="p-4">
+      <div className="p-4 mt-2">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">Current Projects</h2>
           <button className="text-[#003160] text-sm">View All</button>
         </div>
         
         <div className="space-y-3">
-          {mockProjects.map(project => (
-            <div key={project.id} className="bg-white p-3 rounded-lg shadow-sm">
-              <div className="flex justify-between mb-2">
-                <span className="font-semibold">{project.title}</span>
-                <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
-                  {project.status}
-                </span>
-              </div>
-              <div className="text-sm text-gray-500 mb-2">
-                Client: {project.client}
-              </div>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center text-sm">
-                  <Clock size={14} className="mr-1 text-red-500" />
-                  <span className="text-red-500">{project.deadline}</span>
-                </div>
-                <span className="text-sm font-semibold">${project.price}</span>
-              </div>
-            </div>
-          ))}
+          {/* Empty state for Current Projects */}
+          <div className="bg-white p-6 rounded-lg shadow-sm text-center">
+            <Briefcase size={40} className="mx-auto mb-3 text-gray-300" />
+            <h3 className="text-lg font-semibold text-gray-700 mb-1">No active projects</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Your current projects will appear here when customers accept your proposals.
+            </p>
+            <Button 
+              onClick={() => navigate('/freelancer/jobs')}
+              className="bg-[#003160] text-white hover:bg-[#002040]">
+              Find Jobs
+            </Button>
+          </div>
         </div>
       </div>
       
       {/* New Job Requests */}
-      <div className="p-4">
+      <div className="p-4 mt-2">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">New Job Requests</h2>
           <button className="text-[#003160] text-sm">View All</button>
         </div>
         
         <div className="space-y-3">
-          {mockRequests.map(request => (
-            <div key={request.id} className="bg-white p-3 rounded-lg shadow-sm">
-              <div className="flex justify-between mb-2">
-                <span className="font-semibold">{request.title}</span>
-                <span className="text-xs font-medium">{request.budget}</span>
-              </div>
-              <div className="text-sm text-gray-500 mb-2">
-                <span>From: {request.client}</span>
-                <span className="mx-2">•</span>
-                <span>Deadline: {request.deadline}</span>
-              </div>
-              <p className="text-sm mb-2">
-                {request.description}
-              </p>
-              <div className="flex flex-wrap gap-1 mb-3">
-                {request.skills.map((skill, index) => (
-                  <span key={index} className="text-xs bg-gray-100 px-2 py-1 rounded-full">
-                    {skill}
-                  </span>
-                ))}
-              </div>
-              <div className="flex space-x-2">
-                <Button 
-                  className="flex-1 bg-[#003160] text-white hover:bg-[#002040]"
-                  size="sm"
-                >
-                  <Handshake size={14} className="mr-1" />
-                  Send Proposal
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="flex-1 border-gray-300"
-                >
-                  Save for Later
-                </Button>
-              </div>
-            </div>
-          ))}
+          {/* Empty state for Job Requests */}
+          <div className="bg-white p-6 rounded-lg shadow-sm text-center">
+            <Handshake size={40} className="mx-auto mb-3 text-gray-300" />
+            <h3 className="text-lg font-semibold text-gray-700 mb-1">No job requests yet</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              New job requests from customers will appear here.
+            </p>
+            <Button 
+              onClick={() => navigate('/freelancer/services')}
+              className="bg-[#003160] text-white hover:bg-[#002040]">
+              Create Services
+            </Button>
+          </div>
         </div>
       </div>
       

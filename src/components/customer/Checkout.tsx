@@ -169,10 +169,13 @@ const Checkout: React.FC<CheckoutProps> = ({
   
   const renderAddressForm = () => (
     <form onSubmit={handleAddressSubmit} className="space-y-4">
-      <h3 className="text-lg font-semibold flex items-center mb-4">
-        <MapPin className="mr-2 text-[#9b87f5]" size={20} />
-        Delivery Address
-      </h3>
+      <div className="flex items-center space-x-3 mb-4">
+        <MapPin className="mr-2 text-[#003160]" size={20} />
+        <div>
+          <h3 className="font-medium">Delivery Address</h3>
+          <p className="text-sm text-gray-500">Select a delivery address</p>
+        </div>
+      </div>
       
       <div className="grid gap-3">
         <div>
@@ -242,7 +245,7 @@ const Checkout: React.FC<CheckoutProps> = ({
         </Button>
         <Button
           type="submit"
-          className="bg-[#9b87f5] hover:bg-[#8d79e6]"
+          className="bg-[#003160] hover:bg-[#002040]"
         >
           Continue to Payment
         </Button>
@@ -252,10 +255,13 @@ const Checkout: React.FC<CheckoutProps> = ({
   
   const renderPaymentForm = () => (
     <form onSubmit={handlePaymentSubmit} className="space-y-4">
-      <h3 className="text-lg font-semibold flex items-center mb-4">
-        <CreditCard className="mr-2 text-[#9b87f5]" size={20} />
-        Payment Details
-      </h3>
+      <div className="flex items-center space-x-3 mb-4">
+        <CreditCard className="mr-2 text-[#003160]" size={20} />
+        <div>
+          <h3 className="font-medium">Payment Method</h3>
+          <p className="text-sm text-gray-500">Select a payment method</p>
+        </div>
+      </div>
       
       {orderError && (
         <Card className="bg-red-50 border-red-200 p-3 mb-4">
@@ -355,7 +361,7 @@ const Checkout: React.FC<CheckoutProps> = ({
         </Button>
         <Button
           type="submit"
-          className="bg-[#9b87f5] hover:bg-[#8d79e6]"
+          className="bg-[#003160] hover:bg-[#002040]"
           disabled={isProcessing}
         >
           {isProcessing ? (
@@ -397,7 +403,7 @@ const Checkout: React.FC<CheckoutProps> = ({
       
       <Button
         onClick={onCheckoutComplete}
-        className="bg-[#9b87f5] hover:bg-[#8d79e6]"
+        className="bg-[#003160] hover:bg-[#002040]"
       >
         Continue Shopping
       </Button>

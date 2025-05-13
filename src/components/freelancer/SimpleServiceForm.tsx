@@ -1,8 +1,11 @@
-import React, { useState, FormEvent } from 'react';
+import React, { useState, FormEvent, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { freelancerServices } from '@/services/api';
 import { Service, NewService } from '@/types/service';
 import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle, X } from "lucide-react";
+import { Button } from '@/components/ui/button';
 
 interface SimpleServiceFormProps {
   onSuccess: (service: Service) => void;
@@ -37,22 +40,84 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
   });
   const [portfolioFile, setPortfolioFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [portfolioFileName, setPortfolioFileName] = useState<string | null>(
+    editItem?.portfolio_url ? 'Current file: ' + editItem.portfolio_url.split('/').pop() : null
+  );
+
+  // Update user_id if it changes
+  useEffect(() => {
+    if (user?.id) {
+      setFormData(prev => ({ ...prev, user_id: user.id }));
+    }
+  }, [user?.id]);
 
   // Handle input changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'price' ? parseFloat(value) : value
-    }));
+    
+    // Handle price as a special case
+    if (name === 'price') {
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue) || value === '') {
+        setFormData(prev => ({
+          ...prev,
+          [name]: value === '' ? 0 : numValue
+        }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+
+    // Clear error for this field when user changes it
+    if (errors[name]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
   };
 
   // Handle file input change
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setPortfolioFile(e.target.files[0]);
+      const file = e.target.files[0];
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setErrors(prev => ({ 
+          ...prev, 
+          portfolio_file: 'File is too large. Maximum size is 5MB.' 
+        }));
+        return;
+      }
+      
+      setPortfolioFile(file);
+      setPortfolioFileName(file.name);
+      
+      // Clear file error if exists
+      if (errors.portfolio_file) {
+        setErrors(prev => {
+          const newErrors = { ...prev };
+          delete newErrors.portfolio_file;
+          return newErrors;
+        });
+      }
     } else {
       setPortfolioFile(null);
+      setPortfolioFileName(editItem?.portfolio_url ? 'Current file: ' + editItem.portfolio_url.split('/').pop() : null);
+    }
+  };
+
+  // Clear the selected file
+  const handleClearFile = () => {
+    setPortfolioFile(null);
+    setPortfolioFileName(editItem?.portfolio_url ? 'Current file: ' + editItem.portfolio_url.split('/').pop() : null);
+    
+    // Reset the file input
+    const fileInput = document.getElementById('portfolio_file') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
     }
   };
 
@@ -60,12 +125,22 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     
-    if (!formData.title) newErrors.title = 'Title is required';
-    if (!formData.category) newErrors.category = 'Category is required';
-    if (!formData.description) newErrors.description = 'Description is required';
-    if (!formData.price) newErrors.price = 'Price is required';
-    if (!formData.delivery_time) newErrors.delivery_time = 'Delivery time is required';
-    if (!formData.whatsapp) newErrors.whatsapp = 'WhatsApp contact is required';
+    if (!formData.title?.trim()) newErrors.title = 'Title is required';
+    if (!formData.category?.trim()) newErrors.category = 'Category is required';
+    if (!formData.description?.trim()) newErrors.description = 'Description is required';
+    
+    if (!formData.price || formData.price <= 0) {
+      newErrors.price = 'Price must be greater than 0';
+    }
+    
+    if (!formData.delivery_time?.trim()) newErrors.delivery_time = 'Delivery time is required';
+    
+    // WhatsApp validation - basic format check
+    if (!formData.whatsapp?.trim()) {
+      newErrors.whatsapp = 'WhatsApp contact is required';
+    } else if (!/^\+?\d{10,15}$/.test(formData.whatsapp.replace(/\s+/g, ''))) {
+      newErrors.whatsapp = 'Please enter a valid WhatsApp number (10-15 digits)';
+    }
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -74,10 +149,11 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
   // Form submission
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     
     if (!validateForm()) return;
     if (!user) {
-      toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
+      setFormError("You must be logged in to offer services.");
       return;
     }
     
@@ -110,34 +186,55 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
       }
       
       if (result) {
-        toast({ title: "Success", description: `Service ${editItem ? 'updated' : 'added'} successfully.` });
+        toast({ 
+          title: `Service ${editItem ? 'Updated' : 'Created'}`, 
+          description: `Your service "${result.title}" has been ${editItem ? 'updated' : 'created'} successfully.`,
+          variant: "default" 
+        });
         onSuccess(result);
       } else {
         throw new Error(`Failed to ${editItem ? 'update' : 'add'} service.`);
       }
     } catch (error: any) {
       console.error(`Error ${editItem ? 'updating' : 'adding'} service:`, error);
-      toast({ title: "Error", description: error.message || `Failed to ${editItem ? 'update' : 'add'} service.`, variant: "destructive" });
+      setFormError(error.message || `Failed to ${editItem ? 'update' : 'add'} service.`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   if (!user) {
-    return <div className="text-center">Please log in to offer a service.</div>;
+    return (
+      <Alert variant="destructive" className="mb-4">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Authentication Error</AlertTitle>
+        <AlertDescription>
+          Please log in to offer services.
+        </AlertDescription>
+      </Alert>
+    );
   }
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">{editItem ? 'Edit Service' : 'Offer New Service'}</h3>
+        <h3 className="text-xl font-semibold text-gray-800">{editItem ? 'Edit Service' : 'Offer New Service'}</h3>
         <button 
           onClick={onCancel}
           className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          aria-label="Close"
         >
-          ✕
+          <X size={20} />
         </button>
       </div>
+      
+      {formError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      )}
       
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Service Title */}
@@ -203,7 +300,7 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
             type="number"
             id="price"
             name="price"
-            value={formData.price}
+            value={formData.price || ''}
             onChange={handleChange}
             min="0"
             step="1000"
@@ -249,7 +346,7 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
         {/* WhatsApp Contact */}
         <div>
           <label htmlFor="whatsapp" className="block text-sm font-medium text-gray-700 mb-1">
-            Contact (WhatsApp) *
+            WhatsApp Contact *
           </label>
           <input
             type="text"
@@ -257,7 +354,7 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
             name="whatsapp"
             value={formData.whatsapp}
             onChange={handleChange}
-            placeholder="e.g., 081234567890"
+            placeholder="e.g., +6281234567890"
             className={`w-full p-2 border rounded-md ${errors.whatsapp ? 'border-red-500' : 'border-gray-300'}`}
           />
           {errors.whatsapp && <p className="text-xs text-red-500 mt-1">{errors.whatsapp}</p>}
@@ -265,65 +362,68 @@ const SimpleServiceForm: React.FC<SimpleServiceFormProps> = ({ onSuccess, onCanc
         
         {/* Portfolio File */}
         <div>
-          <label htmlFor="portfolio" className="block text-sm font-medium text-gray-700 mb-1">
-            Upload Portfolio (Optional)
+          <label htmlFor="portfolio_file" className="block text-sm font-medium text-gray-700 mb-1">
+            Portfolio File (Optional)
           </label>
-          <input
-            type="file"
-            id="portfolio"
-            onChange={handleFileChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-          {editItem?.portfolio_url && !portfolioFile && (
-            <p className="text-xs text-gray-500 mt-1">
-              Current portfolio: {editItem.portfolio_url.split('/').pop()}
-            </p>
+          <div className="flex items-center space-x-3">
+            <input
+              type="file"
+              id="portfolio_file"
+              name="portfolio_file"
+              onChange={handleFileChange}
+              className="hidden"
+              accept="image/*,.pdf,.doc,.docx"
+            />
+            <Button 
+              type="button"
+              variant="outline" 
+              onClick={() => document.getElementById('portfolio_file')?.click()}
+              className="border border-gray-300"
+            >
+              Choose File
+            </Button>
+            {portfolioFileName && (
+              <div className="flex items-center">
+                <span className="text-sm text-gray-600 truncate max-w-xs">{portfolioFileName}</span>
+                <button
+                  type="button"
+                  onClick={handleClearFile}
+                  className="ml-2 text-gray-500 hover:text-gray-700"
+                  title="Clear file"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+          {errors.portfolio_file && (
+            <p className="text-xs text-red-500 mt-1">{errors.portfolio_file}</p>
           )}
-          {portfolioFile && (
-            <p className="text-xs text-gray-500 mt-1">
-              Selected file: {portfolioFile.name}
-            </p>
-          )}
+          <p className="text-xs text-gray-500 mt-1">
+            Max file size: 5MB. Supported formats: Images, PDF, DOC, DOCX
+          </p>
         </div>
         
         {/* Form Actions */}
-        <div className="flex justify-end space-x-2 pt-2">
-          <button
-            type="button"
+        <div className="flex justify-end space-x-3 pt-2">
+          <Button 
+            type="button" 
+            variant="outline" 
             onClick={onCancel}
             disabled={isSubmitting}
-            className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+            className="border-gray-300"
           >
             Cancel
-          </button>
-          <button
-            type="submit"
+          </Button>
+          <Button 
+            type="submit" 
             disabled={isSubmitting}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 text-white"
           >
-            {isSubmitting ? 
-              (editItem ? 'Updating...' : 'Saving...') : 
-              (editItem ? 'Update Service' : 'Add Service')
-            }
-          </button>
+            {isSubmitting ? 'Saving...' : (editItem ? 'Update Service' : 'Create Service')}
+          </Button>
         </div>
       </form>
-      
-      {/* Debug Info */}
-      <div className="mt-8 p-4 border border-yellow-300 bg-yellow-50 rounded-md">
-        <h3 className="text-sm font-bold mb-2">Form Debug</h3>
-        <pre className="text-xs bg-white p-2 rounded overflow-auto max-h-40">
-          {JSON.stringify(formData, null, 2)}
-        </pre>
-        {Object.keys(errors).length > 0 && (
-          <div className="mt-2">
-            <h4 className="text-xs font-semibold text-red-500">Form Errors:</h4>
-            <pre className="text-xs bg-white p-2 rounded overflow-auto max-h-40">
-              {JSON.stringify(errors, null, 2)}
-            </pre>
-          </div>
-        )}
-      </div>
     </div>
   );
 };

@@ -602,47 +602,121 @@ export const driverServices = {
 export const freelancerServices = {
   // Skill Management
   getSkills: async (freelancerId: string) => {
-    const { data, error } = await supabase
-      .from('skills' as any)
-      .select('*')
-      .eq('user_id', freelancerId)
-      .order('created_at', { ascending: false });
+    if (!freelancerId) {
+      throw new Error('User ID is required to get skills');
+    }
     
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('skills' as any)
+        .select('*')
+        .eq('user_id', freelancerId)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error getting skills:', error);
+        throw error;
+      }
+      
+      return data || [];
+    } catch (error) {
+      console.error('Error in getSkills:', error);
+      throw error;
+    }
   },
   
   addSkill: async (skill: NewSkill) => {
-    const { data, error } = await supabase
-      .from('skills' as any)
-      .insert(skill)
-      .select()
-      .single();
+    if (!skill.user_id) {
+      throw new Error('User ID is required to add a skill');
+    }
     
-    if (error) throw error;
-    return data;
+    try {
+      // Add created_at and updated_at timestamps
+      const skillWithTimestamps = {
+        ...skill,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      const { data, error } = await supabase
+        .from('skills' as any)
+        .insert(skillWithTimestamps)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error adding skill:', error);
+        
+        // Provide specific error messages based on the error type
+        if (error.message.includes('violates foreign key constraint')) {
+          throw new Error('Invalid user reference. Please try logging out and back in.');
+        } else if (error.message.includes('violates not-null constraint')) {
+          const field = error.message.match(/column "([^"]+)"/)?.[1] || 'Unknown field';
+          throw new Error(`Required field missing: ${field}`);
+        } else {
+          throw error;
+        }
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error in addSkill:', error);
+      throw error;
+    }
   },
   
   updateSkill: async (skillId: string, updates: Partial<Skill>) => {
-    const { data, error } = await supabase
-      .from('skills' as any)
-      .update(updates)
-      .eq('id', skillId)
-      .select()
-      .single();
+    if (!skillId) {
+      throw new Error('Skill ID is required to update a skill');
+    }
     
-    if (error) throw error;
-    return data;
+    try {
+      // Add updated_at timestamp
+      const updatesWithTimestamp = {
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+      
+      const { data, error } = await supabase
+        .from('skills' as any)
+        .update(updatesWithTimestamp)
+        .eq('id', skillId)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error updating skill:', error);
+        throw error;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error in updateSkill:', error);
+      throw error;
+    }
   },
   
   deleteSkill: async (skillId: string) => {
-    const { error } = await supabase
-      .from('skills' as any)
-      .delete()
-      .eq('id', skillId);
+    if (!skillId) {
+      throw new Error('Skill ID is required to delete a skill');
+    }
     
-    if (error) throw error;
-    return true;
+    try {
+      const { error } = await supabase
+        .from('skills' as any)
+        .delete()
+        .eq('id', skillId);
+      
+      if (error) {
+        console.error('Error deleting skill:', error);
+        throw error;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in deleteSkill:', error);
+      throw error;
+    }
   },
 
   // Job Management

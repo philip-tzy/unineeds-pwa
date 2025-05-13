@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useItemForm } from '@/hooks/useItemForm';
@@ -27,12 +26,14 @@ interface ProductFormWithCategoriesProps {
   onSuccess: () => void;
   onCancel?: () => void;
   editItem?: any | null;
+  serviceType?: 'unishop' | 'unifood';
 }
 
 const ProductFormWithCategories: React.FC<ProductFormWithCategoriesProps> = ({ 
   onSuccess, 
   onCancel, 
-  editItem 
+  editItem,
+  serviceType = 'unishop'
 }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -134,6 +135,7 @@ const ProductFormWithCategories: React.FC<ProductFormWithCategoriesProps> = ({
     setValue
   } = useItemForm<any>({
     tableName: 'products',
+    serviceType,
     editItem,
     onSuccess,
     defaultValues
@@ -238,11 +240,13 @@ const ProductFormWithCategories: React.FC<ProductFormWithCategoriesProps> = ({
           )}
         </div>
         
-        <AvailabilityToggle 
-          isAvailable={isAvailable}
-          setIsAvailable={setIsAvailable}
-          label="Available for purchase"
-        />
+        <div className="mt-4">
+          <AvailabilityToggle 
+            isAvailable={isAvailable}
+            setIsAvailable={setIsAvailable}
+            label="Product is active and available for purchase"
+          />
+        </div>
         
         <FormFooter 
           isSubmitting={isSubmitting} 

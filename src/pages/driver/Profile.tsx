@@ -1,91 +1,125 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Camera, Edit2, LogOut, Mail, MapPin, Phone, Shield, Star, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import { useToast } from '@/components/ui/use-toast';
-import DriverBottomNavigation from '@/components/driver/BottomNavigation';
+import { ArrowLeft, UserCircle, Settings, LogOut, Mail, Phone, MapPin, Car, Award, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { useAuth } from '@/context/AuthContext';
+import DriverBottomNavigation from '@/components/driver/BottomNavigation';
+import { useToast } from '@/components/ui/use-toast';
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "@/components/ui/alert-dialog";
 import { supabase } from '@/integrations/supabase/client';
+import type { DriverType } from '@/context/AuthContext';
 
-interface DriverProfile {
+interface ProfileData {
+  avatar_url: string | null;
+  contact_info?: {
+    phone: string;
+    address: string;
+    whatsapp?: string;
+    email?: string;
+  };
+  vehicle_info?: {
+    make: string;
+    model: string;
+    year: string;
+    color: string;
+    licensePlate: string;
+  };
+  role?: string;
+  driver_type?: DriverType;
+}
+
+interface UserExtended {
   id: string;
-  full_name: string;
-  email: string;
-  phone: string;
-  address: string;
-  profile_image?: string;
-  rating: number;
-  total_trips: number;
-  vehicle_type: string;
-  license_plate: string;
-  account_status: string;
+  email?: string;
+  user_metadata?: {
+    role?: string;
+    driver_type?: DriverType;
+  }
 }
 
 const DriverProfilePage: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { toast } = useToast();
-  const [profile, setProfile] = useState<DriverProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-
+  const [profileData, setProfileData] = useState<ProfileData>({
+    avatar_url: null
+  });
+  
   useEffect(() => {
-    if (!user?.id) return;
-
-    const fetchProfile = async () => {
-      try {
-        setLoading(true);
-
-        // In a real implementation, fetch from Supabase
-        // For now, using mock data
-        setTimeout(() => {
-          const mockProfile: DriverProfile = {
-            id: user.id,
-            full_name: 'Alex Rodriguez',
-            email: user.email || 'alex.rodriguez@example.com',
-            phone: '+1 234-567-8901',
-            address: '123 Main St, City, Country',
-            profile_image: 'https://randomuser.me/api/portraits/men/32.jpg',
-            rating: 4.8,
-            total_trips: 357,
-            vehicle_type: 'Motorcycle',
-            license_plate: 'ABC 123',
-            account_status: 'active'
-          };
-
-          setProfile(mockProfile);
-          setLoading(false);
-        }, 800);
-
-        // In a real implementation, you would fetch from Supabase like this:
-        /*
-        const { data, error } = await supabase
-          .from('driver_profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-          
-        if (error) throw error;
-        
-        if (data) {
-          setProfile(data as DriverProfile);
-        }
-        */
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load profile information",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
+    console.log("DriverProfile component mounted");
+    console.log("User info:", user);
+    
+    if (user) {
+      // We know the user should be a driver based on the route protection
+      fetchUserData();
+      
+      // Set up realtime listener for profile updates
+      const profileSubscription = supabase
+        .channel('profile_updates')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`
+        }, (payload) => {
+          console.log('Profile updated:', payload);
+          if (payload.new) {
+            const newData = payload.new as any;
+            setProfileData({
+              avatar_url: newData.avatar_url,
+              contact_info: newData.contact_info,
+              vehicle_info: newData.vehicle_info,
+              role: newData.role,
+              driver_type: newData.driver_type
+            });
+          }
+        })
+        .subscribe();
+      
+      // Clean up subscription when component unmounts
+      return () => {
+        profileSubscription.unsubscribe();
+      };
+    }
+  }, [user]);
+  
+  const fetchUserData = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .single();
+      
+      if (error) {
+        throw error;
       }
-    };
-
-    fetchProfile();
-  }, [user?.id, toast]);
-
+      
+      if (data) {
+        setProfileData({
+          avatar_url: data.avatar_url,
+          contact_info: data.contact_info as any,
+          vehicle_info: data.vehicle_info as any,
+          role: data.role,
+          driver_type: data.driver_type
+        });
+        console.log('User data:', data);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+  
   const handleLogout = async () => {
     try {
       await logout();
@@ -103,165 +137,183 @@ const DriverProfilePage: React.FC = () => {
       });
     }
   };
+  
+  const handleEditProfile = () => {
+    navigate('/edit-driver-profile');
+  };
 
+  // Driver type display - handle user or profileData having the driver_type
+  const driverTypeDisplay = 
+    (user?.user_metadata?.driver_type === 'unimove' || profileData.driver_type === 'unimove') 
+      ? 'UniMove Driver' 
+      : 'UniSend Driver';
+
+  // Get driver stats
+  const stats = [
+    { 
+      label: profileData.driver_type === 'unisend' ? 'Deliveries' : 'Rides', 
+      value: '32', 
+      icon: <Award size={18} className="text-blue-500" /> 
+    },
+    { 
+      label: 'Rating', 
+      value: '4.8', 
+      icon: <BarChart3 size={18} className="text-green-500" /> 
+    },
+  ];
+  
   return (
-    <div className="min-h-screen bg-gray-50 pb-16">
-      {/* App Bar */}
-      <div className="bg-white p-4 flex items-center shadow-sm">
+    <div className="pb-20 bg-gray-50 min-h-screen">
+      <div className="bg-[#003160] pb-12 pt-6 px-4 relative">
         <button 
           onClick={() => navigate(-1)} 
-          className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+          className="p-2 rounded-full bg-white/20 text-white absolute left-4 top-6"
         >
-          <ArrowLeft size={24} />
+          <ArrowLeft size={20} />
         </button>
-        <h1 className="flex-1 text-center text-xl font-bold">
-          <span className="text-[#003160]">Profile</span>
-        </h1>
-        <button className="p-1 rounded-full hover:bg-gray-100 transition-colors">
-          <Edit2 size={20} />
-        </button>
+        <h1 className="text-white text-center font-semibold text-lg">Driver Profile</h1>
       </div>
       
-      {/* Main Content */}
-      <div className="p-4">
-        {loading ? (
-          <div className="text-center py-10">
-            <p>Loading profile...</p>
+      <div className="px-4 -mt-10 space-y-4 pb-4">
+        <div className="bg-white rounded-lg shadow-sm p-6 text-center relative">
+          <div className="absolute right-4 top-4">
+            <Button variant="ghost" size="sm" onClick={handleEditProfile}>
+              <Settings size={18} />
+            </Button>
           </div>
-        ) : profile ? (
-          <>
-            {/* Profile Header */}
-            <div className="bg-white rounded-lg shadow-sm p-6 mb-4 text-center">
-              <div className="relative inline-block">
-                <div className="w-24 h-24 rounded-full overflow-hidden mx-auto bg-gray-200">
-                  {profile.profile_image ? (
-                    <img 
-                      src={profile.profile_image} 
-                      alt={profile.full_name} 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User size={64} className="w-full h-full p-4 text-gray-400" />
-                  )}
-                </div>
-                <button className="absolute bottom-0 right-0 bg-[#003160] text-white p-1.5 rounded-full">
-                  <Camera size={16} />
-                </button>
-              </div>
-              
-              <h2 className="text-xl font-semibold mt-4">{profile.full_name}</h2>
-              
-              <div className="flex items-center justify-center mt-1 text-yellow-500">
-                <Star size={16} fill="currentColor" />
-                <span className="ml-1 text-gray-800">{profile.rating}</span>
-                <span className="mx-2 text-gray-300">•</span>
-                <span className="text-gray-600">{profile.total_trips} trips</span>
-              </div>
-              
-              <div className="mt-4 flex justify-center gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="flex items-center gap-1 border-[#003160] text-[#003160]"
-                >
-                  <Edit2 size={14} />
-                  Edit Profile
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="flex items-center gap-1 border-red-500 text-red-500"
-                  onClick={handleLogout}
-                >
-                  <LogOut size={14} />
-                  Logout
-                </Button>
-              </div>
+          <div className="flex flex-col items-center">
+            <div className="bg-gray-100 p-1 rounded-full w-24 h-24 flex items-center justify-center overflow-hidden">
+              {profileData.avatar_url ? (
+                <img 
+                  src={profileData.avatar_url} 
+                  alt="Profile" 
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <UserCircle size={60} className="text-gray-500" />
+              )}
+            </div>
+            <h2 className="mt-3 font-semibold text-lg">{user?.email?.split('@')[0]}</h2>
+            <p className="text-sm text-gray-500 capitalize">Driver</p>
+            <div className="mt-1 bg-blue-50 text-[#003160] text-xs px-2 py-1 rounded-full">
+              {driverTypeDisplay}
+            </div>
+          </div>
+          
+          <div className="mt-4 space-y-2 text-left">
+            <div className="flex items-center">
+              <Mail size={16} className="text-gray-500 mr-2" />
+              <p className="text-sm">{user?.email}</p>
             </div>
             
-            {/* Contact Information */}
-            <Card className="mb-4">
-              <CardContent className="p-4">
-                <h3 className="text-md font-medium mb-3">Contact Information</h3>
+            {profileData.contact_info && (
+              <>
+                {profileData.contact_info.phone && (
+                  <div className="flex items-center">
+                    <Phone size={16} className="text-gray-500 mr-2" />
+                    <p className="text-sm">{profileData.contact_info.phone}</p>
+                  </div>
+                )}
                 
-                <div className="space-y-3">
+                {profileData.contact_info.address && (
                   <div className="flex items-center">
-                    <Mail size={16} className="text-gray-500 mr-3" />
-                    <div>
-                      <p className="text-xs text-gray-500">Email</p>
-                      <p className="text-sm">{profile.email}</p>
-                    </div>
+                    <MapPin size={16} className="text-gray-500 mr-2" />
+                    <p className="text-sm">{profileData.contact_info.address}</p>
                   </div>
-                  
-                  <div className="flex items-center">
-                    <Phone size={16} className="text-gray-500 mr-3" />
-                    <div>
-                      <p className="text-xs text-gray-500">Phone</p>
-                      <p className="text-sm">{profile.phone}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center">
-                    <MapPin size={16} className="text-gray-500 mr-3" />
-                    <div>
-                      <p className="text-xs text-gray-500">Address</p>
-                      <p className="text-sm">{profile.address}</p>
-                    </div>
-                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        
+        {profileData.vehicle_info && Object.values(profileData.vehicle_info).some(value => value) && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
+            <h3 className="font-semibold mb-3 flex items-center">
+              <Car size={18} className="text-[#003160] mr-2" />
+              Vehicle Information
+            </h3>
+            <div className="space-y-2">
+              {profileData.vehicle_info.make && profileData.vehicle_info.model && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">Vehicle</p>
+                  <p className="text-sm font-medium">
+                    {`${profileData.vehicle_info.make} ${profileData.vehicle_info.model}${profileData.vehicle_info.year ? ` (${profileData.vehicle_info.year})` : ''}`}
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
-            
-            {/* Vehicle Information */}
-            <Card className="mb-4">
-              <CardContent className="p-4">
-                <h3 className="text-md font-medium mb-3">Vehicle Information</h3>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-600">Vehicle Type</p>
-                    <p className="text-sm font-medium">{profile.vehicle_type}</p>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-600">License Plate</p>
-                    <p className="text-sm font-medium">{profile.license_plate}</p>
-                  </div>
+              )}
+              
+              {profileData.vehicle_info.color && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">Color</p>
+                  <p className="text-sm font-medium">{profileData.vehicle_info.color}</p>
                 </div>
-              </CardContent>
-            </Card>
-            
-            {/* Account Status */}
-            <Card className="mb-4">
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <Shield size={18} className="text-green-500 mr-2" />
-                  <div className="flex-1">
-                    <h3 className="text-md font-medium">Account Status</h3>
-                    <p className="text-sm text-gray-500">Your account is {profile.account_status}</p>
-                  </div>
-                  <div className={`w-3 h-3 rounded-full ${profile.account_status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              )}
+              
+              {profileData.vehicle_info.licensePlate && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">License Plate</p>
+                  <p className="text-sm font-medium">{profileData.vehicle_info.licensePlate}</p>
                 </div>
-              </CardContent>
-            </Card>
-            
-            {/* App Settings Button */}
-            <Button 
-              variant="outline" 
-              className="w-full"
-              onClick={() => navigate('/settings')}
-            >
-              App Settings
-            </Button>
-          </>
-        ) : (
-          <div className="text-center py-10">
-            <p className="text-gray-500">Failed to load profile information</p>
+              )}
+            </div>
           </div>
         )}
+        
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
+          <h3 className="font-semibold mb-3">Your Stats</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {stats.map((stat, index) => (
+              <div key={index} className="flex items-center bg-gray-50 p-3 rounded-lg">
+                <div className="bg-white p-2 rounded-full mr-3">
+                  {stat.icon}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{stat.label}</p>
+                  <p className="font-bold">{stat.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
+          <h3 className="font-semibold mb-3">Driver Options</h3>
+          <Button
+            onClick={() => navigate('/driver-role-selection')}
+            variant="outline"
+            className="w-full justify-between"
+          >
+            <span>Change driver type</span>
+            <span className="text-[#003160]">
+              {profileData.driver_type === 'unimove' ? 'UniMove' : profileData.driver_type === 'unisend' ? 'UniSend' : 'Not set'}
+            </span>
+          </Button>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="w-full">
+                <LogOut size={16} className="mr-2" />
+                Logout
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure you want to logout?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You'll need to sign in again to access your account.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleLogout}>Logout</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
       
-      {/* Bottom Navigation */}
       <DriverBottomNavigation />
     </div>
   );

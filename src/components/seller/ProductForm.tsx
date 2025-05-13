@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useItemForm } from '@/hooks/useItemForm';
 import FormHeader from '@/components/seller/forms/FormHeader';
@@ -47,6 +46,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ onSuccess, onCancel, editItem
     handleCategoryChange 
   } = useItemForm<NewProduct>({
     tableName: 'products',
+    serviceType: 'unishop',
     editItem,
     onSuccess,
     defaultValues

@@ -2,7 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = "https://otkhxrrbiqdutlgfkfdm.supabase.co";
+// Check for localStorage override for URL (useful for WebSocket fixes)
+const storedUrl = typeof window !== 'undefined' ? window.localStorage?.getItem('supabase-url') : null;
+
+const SUPABASE_URL = storedUrl || "https://otkhxrrbiqdutlgfkfdm.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90a2h4cnJiaXFkdXRsZ2ZrZmRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1Nzg2NDAsImV4cCI6MjA1NzE1NDY0MH0.dGD5wYO0U9BWkFbbZqA2XfXiYwDXpcZQtluKeiBPLKY";
 
 // Import the supabase client like this:
@@ -13,6 +16,14 @@ let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 
 export const getSupabaseClient = () => {
   if (!supabaseInstance) {
+    console.log('Initializing Supabase client with realtime features enabled');
+    console.log('Using Supabase URL:', SUPABASE_URL);
+    
+    // Check if we're using localhost, and log a warning
+    if (SUPABASE_URL.includes('localhost')) {
+      console.warn('Using localhost for Supabase URL. If WebSocket issues occur, try 127.0.0.1 instead.');
+    }
+    
     supabaseInstance = createClient<Database>(
       SUPABASE_URL, 
       SUPABASE_PUBLISHABLE_KEY,
@@ -21,12 +32,164 @@ export const getSupabaseClient = () => {
           storageKey: 'unineeds-auth-storage-key',
           persistSession: true,
           autoRefreshToken: true,
-        }
+        },
+        realtime: {
+          params: {
+            eventsPerSecond: 10,
+          },
+          reconnectAfterMs: (attemptNumber) => {
+            // Exponential backoff with a minimum of 1s and maximum of 30s
+            const delay = Math.min(1000 * (2 ** attemptNumber), 30000);
+            console.log(`Realtime connection lost. Attempting to reconnect in ${delay}ms (attempt ${attemptNumber})`);
+            return delay;
+          },
+          logger: (log) => {
+            console.log(`Supabase Realtime: ${log.level}`, log.message, log.extra);
+          },
+        },
+        db: {
+          schema: 'public',
+        },
+        global: {
+          headers: {
+            // Send authentication header with each request
+            Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
+          },
+          fetch: (...args) => {
+            // Log all API calls during development
+            console.log('Supabase API fetch:', args[0]);
+            // Add custom logic for fetch if needed
+            return fetch(...args);
+          },
+        },
       }
     );
+    
+    // Set up a channel to monitor connection state changes
+    const connectionMonitor = supabaseInstance.channel('connection_monitor');
+    
+    connectionMonitor
+      .on('system', { event: 'connected' }, () => {
+        console.log('Supabase realtime connection established');
+      })
+      .on('system', { event: 'disconnected' }, () => {
+        console.warn('Supabase realtime connection closed');
+      })
+      .on('system', { event: 'error' }, (err) => {
+        console.error('Supabase realtime error:', err);
+        // If we get an error with localhost, try switching to 127.0.0.1
+        if (typeof window !== 'undefined' && SUPABASE_URL.includes('localhost')) {
+          const ipUrl = SUPABASE_URL.replace('localhost', '127.0.0.1');
+          console.log(`Websocket error with localhost. You might want to try: ${ipUrl}`);
+          window.localStorage?.setItem('alternative-supabase-url', ipUrl);
+        }
+      })
+      .subscribe();
+    
+    console.log('Supabase client initialized successfully');
   }
   return supabaseInstance;
 };
 
 // For backwards compatibility
 export const supabase = getSupabaseClient();
+
+// Function to check and troubleshoot database permissions
+export const checkDatabasePermissions = async () => {
+  try {
+    console.log('Checking database permissions...');
+    
+    // Test query to check if driver can access orders table
+    const { data: orders, error: ordersError } = await supabase
+      .from('orders')
+      .select('id, service_type, status')
+      .limit(1);
+      
+    if (ordersError) {
+      console.error('Error accessing orders table:', ordersError);
+      return false;
+    }
+    
+    // Test query to check if driver can access users table
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, role')
+      .limit(1);
+      
+    if (usersError) {
+      console.error('Error accessing users table:', usersError);
+      return false;
+    }
+    
+    console.log('Database permission check complete', { 
+      ordersAccessible: !ordersError, 
+      usersAccessible: !usersError 
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error checking database permissions:', error);
+    return false;
+  }
+};
+
+// Function to check if realtime is working and all required tables are enabled
+export const checkRealtimeSetup = async (): Promise<string[]> => {
+  const issues: string[] = [];
+  
+  try {
+    // Basic connection check
+    const channel = supabase.channel('health_check');
+    
+    const connectionPromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout after 5 seconds'));
+      }, 5000);
+      
+      channel
+        .on('system', { event: 'connected' }, () => {
+          clearTimeout(timeout);
+          resolve();
+        })
+        .on('system', { event: 'error' }, (err) => {
+          clearTimeout(timeout);
+          reject(new Error(`Channel error: ${err.message || JSON.stringify(err)}`));
+        })
+        .subscribe();
+    });
+    
+    try {
+      await connectionPromise;
+    } catch (error) {
+      issues.push(`Realtime connection failed: ${error}`);
+    } finally {
+      supabase.removeChannel(channel);
+    }
+    
+    // Check if important tables are enabled for realtime
+    const tablesToCheck = ['orders', 'ride_requests', 'notifications'];
+    
+    for (const table of tablesToCheck) {
+      try {
+        // Query to check if the table is enabled for realtime
+        const { data, error } = await supabase
+          .from('pg_publication_tables')
+          .select('*')
+          .eq('tablename', table)
+          .eq('pubname', 'supabase_realtime')
+          .limit(1);
+          
+        if (error || !data || data.length === 0) {
+          issues.push(`⚠️ No realtime events detected for table ${table}. Make sure realtime is enabled in Supabase Dashboard for this table.`);
+        }
+      } catch (err) {
+        console.error(`Error checking table ${table}:`, err);
+      }
+    }
+    
+  } catch (error) {
+    issues.push(`Error checking realtime setup: ${error}`);
+  }
+  
+  return issues;
+};

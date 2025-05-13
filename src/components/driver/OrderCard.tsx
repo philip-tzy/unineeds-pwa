@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Clock, DollarSign } from 'lucide-react';
+import { MapPin, Clock, DollarSign, User, Package } from 'lucide-react';
 import type { Order } from '@/types/unimove';
 import { Button } from '@/components/ui/button';
 
@@ -57,26 +57,51 @@ const OrderCard: React.FC<OrderCardProps> = ({
     const timeMinutes = (distance / avgSpeed) * 60;
     return `${Math.round(timeMinutes)} min`;
   };
+  
+  // Determine if this is a delivery or ride order
+  const isDelivery = order.service_type === 'unisend';
+  
+  // Set colors based on service type
+  const themeColor = '#003160';
+  const hoverColor = '#002040';
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
       <div className="p-4">
         <div className="flex justify-between items-start mb-3">
-          <div>
-            <h3 className="font-medium text-gray-900">{order.customer?.name || 'Customer'}</h3>
-            <div className="mt-1 text-xs text-gray-500 flex items-center">
-              <Clock size={12} className="mr-1" />
-              <span>Requested {new Date(order.created_at || '').toLocaleTimeString()}</span>
+          <div className="flex items-center">
+            {isDelivery ? (
+              <Package size={16} className={`text-[${themeColor}] mr-2`} />
+            ) : (
+              <User size={16} className={`text-[${themeColor}] mr-2`} />
+            )}
+            <div>
+              <h3 className="font-medium text-gray-900">
+                {isDelivery ? 'Delivery Request' : (order.customer?.name || 'Customer')}
+              </h3>
+              <div className="mt-1 text-xs text-gray-500 flex items-center">
+                <Clock size={12} className="mr-1" />
+                <span>Requested {new Date(order.created_at || '').toLocaleTimeString()}</span>
+              </div>
             </div>
           </div>
           <div className="text-right">
             <div className="text-lg font-bold text-gray-900">${order.total_amount?.toFixed(2)}</div>
             <div className="text-xs text-gray-500 flex items-center justify-end">
               <DollarSign size={12} className="mr-1" />
-              <span>Estimated fare</span>
+              <span>Estimated {isDelivery ? 'earnings' : 'fare'}</span>
             </div>
           </div>
         </div>
+        
+        {/* Package size badge for delivery orders */}
+        {isDelivery && (
+          <div className="mb-3">
+            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+              {order.package_size || 'Standard'} Package
+            </span>
+          </div>
+        )}
         
         <div className="space-y-2 mb-4">
           <div className="flex items-start">
@@ -116,7 +141,8 @@ const OrderCard: React.FC<OrderCardProps> = ({
           </Button>
           <Button 
             onClick={() => onAccept(order)}
-            className="flex-1 bg-[#003160] hover:bg-[#002040]"
+            className={`flex-1 bg-[${themeColor}] hover:bg-[${hoverColor}]`}
+            style={{ backgroundColor: themeColor }}
             disabled={loading}
           >
             {loading ? "Accepting..." : "Accept"}
@@ -128,3 +154,4 @@ const OrderCard: React.FC<OrderCardProps> = ({
 };
 
 export default OrderCard;
+

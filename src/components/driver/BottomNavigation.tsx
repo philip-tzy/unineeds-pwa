@@ -4,7 +4,9 @@ import { Home, Bell, DollarSign, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { fetchPendingOrders } from '@/services/driver/OrderRepository';
+import { fetchPendingDeliveryOrders } from '@/services/driver/UniSendOrderRepository';
 import { subscribeToNewOrders } from '@/services/driver/OrderSubscriptionService';
+import { subscribeToNewDeliveryOrders } from '@/services/driver/UniSendSubscriptionService';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -24,7 +26,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, badge, onC
         onClick={onClick}
         className={cn(
           "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-          isActive ? "text-[#9b87f5]" : "text-gray-500"
+          isActive ? "text-[#003160]" : "text-gray-500"
         )}
       >
         <div className={cn(
@@ -48,7 +50,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, badge, onC
       to={to} 
       className={cn(
         "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-        isActive ? "text-[#9b87f5]" : "text-gray-500"
+        isActive ? "text-[#003160]" : "text-gray-500"
       )}
     >
       <div className={cn(
@@ -78,29 +80,55 @@ const DriverBottomNavigation: React.FC = () => {
   // Update the path state when location changes
   useEffect(() => {
     setPath(location.pathname);
-  }, [location.pathname]);
+    
+    // Debug logging for profile navigation
+    if (location.pathname.includes('/driver/profile')) {
+      console.log('Driver accessing profile page');
+      console.log('Current user:', user);
+      console.log('Current path:', location.pathname);
+    }
+  }, [location.pathname, user]);
   
   // Fetch pending orders count and subscribe to new orders
   useEffect(() => {
     if (!user?.id) return;
     
+    console.log(`Initializing BottomNavigation notifications for driver ${user.id}`);
+    
     const loadPendingOrders = async () => {
       try {
-        const orders = await fetchPendingOrders();
-        setPendingRequestsCount(orders.length);
+        // Get both ride and delivery pending orders
+        const rideOrders = await fetchPendingOrders(user.id);
+        const deliveryOrders = await fetchPendingDeliveryOrders(user.id);
+        
+        // Combine the counts
+        const totalPendingCount = rideOrders.length + deliveryOrders.length;
+        setPendingRequestsCount(totalPendingCount);
+        
+        console.log(`Found ${rideOrders.length} pending ride orders and ${deliveryOrders.length} pending delivery orders`);
       } catch (error) {
         console.error('Error fetching pending orders count:', error);
       }
     };
     
+    // Initial load
     loadPendingOrders();
     
-    // Subscribe to new orders to update badge count
-    const channel = subscribeToNewOrders((newOrder) => {
-      setPendingRequestsCount(prev => prev + 1);
+    // Subscribe to new ride orders
+    const rideChannel = subscribeToNewOrders((newOrder) => {
+      console.log('New ride notification in bottom navigation:', newOrder);
       
-      // Play notification sound if not on the requests page
-      if (!path.includes('/driver/requests')) {
+      // Only update count if not on the orders page
+      if (!path.includes('/driver/unimove')) {
+        setPendingRequestsCount(prev => prev + 1);
+        
+        // Show toast notification for new ride request
+        toast({
+          title: "New Ride Request",
+          description: `New ride from ${newOrder.pickup_address || 'pickup'} to ${newOrder.delivery_address || 'destination'}`,
+        });
+        
+        // Play notification sound
         try {
           const audio = new Audio('/notification.mp3');
           audio.play().catch(e => console.log('Auto-play prevented:', e));
@@ -110,21 +138,56 @@ const DriverBottomNavigation: React.FC = () => {
       }
     });
     
-    // Refresh count every 30 seconds
-    const intervalId = setInterval(loadPendingOrders, 30000);
+    // Subscribe to new delivery orders
+    const deliveryChannel = subscribeToNewDeliveryOrders((newOrder) => {
+      console.log('New delivery notification in bottom navigation:', newOrder);
+      
+      // Only update count if not on the orders page
+      if (!path.includes('/driver/unimove')) {
+        setPendingRequestsCount(prev => prev + 1);
+        
+        // Show toast notification for new delivery request
+        toast({
+          title: "New Delivery Request",
+          description: `New delivery from ${newOrder.pickup_address || 'pickup'} to ${newOrder.delivery_address || 'destination'}`,
+        });
+        
+        // Play notification sound
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(e => console.log('Auto-play prevented:', e));
+        } catch (e) {
+          console.log('Audio notification not supported');
+        }
+      }
+    });
+    
+    // Refresh count every 30 seconds as a fallback
+    const intervalId = setInterval(() => {
+      console.log('Polling for pending orders count...');
+      if (!path.includes('/driver/unimove')) {
+        loadPendingOrders();
+      }
+    }, 30000);
     
     return () => {
-      supabase.removeChannel(channel);
+      if (rideChannel.unsubscribe) rideChannel.unsubscribe();
+      if (deliveryChannel.unsubscribe) deliveryChannel.unsubscribe();
       clearInterval(intervalId);
     };
-  }, [user?.id, path]);
+  }, [user?.id, path, toast]);
   
-  // Reset badge count when navigating to requests page
+  // Reset badge count when navigating to the UniMove page
   useEffect(() => {
-    if (path.includes('/driver/requests')) {
+    if (path.includes('/driver/unimove')) {
       setPendingRequestsCount(0);
     }
   }, [path]);
+  
+  // Handle navigation to requests
+  const handleRequestsClick = () => {
+    navigate('/driver/unimove');
+  };
   
   return (
     <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 flex items-center justify-around px-4 z-50 animate-fade-in">
@@ -135,11 +198,12 @@ const DriverBottomNavigation: React.FC = () => {
         isActive={path === '/driver/dashboard'}
       />
       <NavItem 
-        to="/driver/requests" 
+        to="/driver/unimove" 
         icon={<Bell size={20} />} 
         label="Requests" 
-        isActive={path.includes('/driver/requests')}
+        isActive={path.includes('/driver/unimove')}
         badge={pendingRequestsCount}
+        onClick={handleRequestsClick}
       />
       <NavItem 
         to="/driver/earnings" 
@@ -151,7 +215,7 @@ const DriverBottomNavigation: React.FC = () => {
         to="/driver/profile" 
         icon={<User size={20} />} 
         label="Profile" 
-        isActive={path.includes('/driver/profile')}
+        isActive={path.includes('/profile')}
       />
     </div>
   );

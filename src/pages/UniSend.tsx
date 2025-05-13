@@ -164,6 +164,19 @@ const UniSend: React.FC = () => {
 
     setLoading(true);
     try {
+      // Get address values from form inputs or use defaults
+      const pickupAddress = document.getElementById('pickup-address') 
+        ? (document.getElementById('pickup-address') as HTMLInputElement).value 
+        : savedAddresses[0].address;
+      
+      const deliveryAddress = document.getElementById('delivery-address') 
+        ? (document.getElementById('delivery-address') as HTMLInputElement).value 
+        : savedAddresses[1].address;
+      
+      if (!pickupAddress || !deliveryAddress) {
+        throw new Error("Pickup and delivery addresses are required");
+      }
+      
       // Create new delivery order
       const { data, error } = await supabase
         .from('orders')
@@ -171,8 +184,8 @@ const UniSend: React.FC = () => {
           customer_id: user.id,
           service_type: 'unisend',
           status: 'pending',
-          pickup_address: 'Your Current Location', // Replace with actual input
-          delivery_address: 'Destination Address', // Replace with actual input
+          pickup_address: pickupAddress,
+          delivery_address: deliveryAddress,
           total_amount: totalPrice,
           package_size: selectedPackageSize,
           delivery_type: selectedOption

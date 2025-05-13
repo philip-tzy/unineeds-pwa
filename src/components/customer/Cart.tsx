@@ -202,7 +202,7 @@ const Cart: React.FC<CartProps> = ({ isOpen, onClose }) => {
       <ShoppingCart className="mx-auto text-gray-300 mb-3" size={48} />
       <h3 className="text-lg font-medium text-gray-700">Your cart is empty</h3>
       <p className="text-gray-500 mb-4">Add items to get started</p>
-      <Button onClick={onClose} className="bg-[#9b87f5] hover:bg-[#8d79e6]">
+      <Button onClick={onClose} className="bg-[#003160] hover:bg-[#002040]">
         Browse Products
       </Button>
     </div>
@@ -235,7 +235,7 @@ const Cart: React.FC<CartProps> = ({ isOpen, onClose }) => {
       <div className="mt-6 flex flex-col gap-3">
         <Button
           onClick={handleCheckout}
-          className="bg-[#9b87f5] hover:bg-[#8d79e6] w-full"
+          className="bg-[#003160] hover:bg-[#002040] w-full"
           disabled={cartItems.length === 0}
         >
           Proceed to Checkout

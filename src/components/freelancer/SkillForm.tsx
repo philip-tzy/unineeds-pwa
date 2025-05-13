@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 // import { useItemForm } from '@/hooks/useItemForm'; // No longer using this
 import { useSkillForm } from '@/hooks/useSkillForm'; // Using the new skill-specific hook
 import FormHeader from '@/components/seller/forms/FormHeader'; // Reusing seller's FormHeader
@@ -10,6 +10,8 @@ import {
 } from '@/components/seller/forms/FormFields'; // Reusing seller's FormFields
 import { Skill } from '@/types/skill'; // NewSkill is implicitly handled by useSkillForm's FormDataType
 import { useAuth } from '@/context/AuthContext';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 interface SkillFormProps {
   onSuccess: () => void;
@@ -28,6 +30,7 @@ const skillCategories = [
 
 const SkillForm: React.FC<SkillFormProps> = ({ onSuccess, onCancel, editItem }) => {
   const { user } = useAuth();
+  const [formError, setFormError] = useState<string | null>(null);
 
   // defaultValues must include user_id for the useSkillForm hook
   const defaultValues = {
@@ -46,9 +49,14 @@ const SkillForm: React.FC<SkillFormProps> = ({ onSuccess, onCancel, editItem }) 
     handleCategoryChange,
     setValue // Keep setValue for direct form manipulation if needed
   } = useSkillForm({
-    // tableName is handled internally by useSkillForm
     editItem,
-    onSuccess,
+    onSuccess: () => {
+      setFormError(null);
+      onSuccess();
+    },
+    onError: (error) => {
+      setFormError(error.message || 'Failed to save skill. Please try again.');
+    },
     defaultValues
     // entityKey is no longer needed as user_id is part of BaseSkillItem
   });
@@ -64,15 +72,29 @@ const SkillForm: React.FC<SkillFormProps> = ({ onSuccess, onCancel, editItem }) 
   }, [user, editItem, setValue, defaultValues.user_id]);
 
   if (!user) {
-    // Optional: Render a message or redirect if user is not authenticated
-    return <p>Please log in to manage your skills.</p>;
+    return (
+      <Alert variant="destructive" className="mb-4">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Authentication Error</AlertTitle>
+        <AlertDescription>
+          Please log in to manage your skills.
+        </AlertDescription>
+      </Alert>
+    );
   }
   
   // Safety check for user_id in default values before rendering form
   // if creating new and user_id is still not set, this is a problem.
   if (!defaultValues.user_id && !editItem) {
-      console.error("User ID is missing for new skill form.");
-      return <p>Error: User information is missing. Cannot add skill.</p>;
+    return (
+      <Alert variant="destructive" className="mb-4">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>
+          User information is missing. Cannot add skill. Please try logging out and back in.
+        </AlertDescription>
+      </Alert>
+    );
   }
 
   return (
@@ -81,6 +103,14 @@ const SkillForm: React.FC<SkillFormProps> = ({ onSuccess, onCancel, editItem }) 
         title={editItem ? 'Edit Skill' : 'Add New Skill'} 
         onCancel={onCancel} 
       />
+      
+      {formError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      )}
       
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <TextField 
@@ -94,26 +124,25 @@ const SkillForm: React.FC<SkillFormProps> = ({ onSuccess, onCancel, editItem }) 
         
         <TextareaField 
           id="description"
-          label="Description (Optional)"
-          placeholder="e.g., Building responsive web applications with React and Node.js"
+          label="Description"
+          required={true}
+          placeholder="Describe your skill and experience level"
           register={register}
-          errors={errors} // Pass errors for TextareaField too
+          errors={errors}
         />
         
         <CategoryField 
-          id="category" // id for the input field itself
-          label="Category (Optional)"
+          id="category"
+          label="Category"
+          required={true}
           categories={skillCategories} 
-          defaultValue={defaultValues.category} // use defaultValues.category for initial render
+          defaultValue={defaultValues.category}
           register={register} 
           errors={errors}
           handleCategoryChange={(value) => setValue('category', value)} 
         />
         
-        {/* Hidden input for user_id to ensure it's part of the form data if needed,
-            though useSkillForm primarily uses authenticated user.id upon submission. 
-            This is more for consistency if form data is inspected directly. */}
-        {/* <input type="hidden" {...register('user_id')} /> */}
+        <input type="hidden" {...register('user_id')} />
 
         <FormFooter 
           isSubmitting={isSubmitting} 

@@ -38,6 +38,12 @@ import NotificationProvider from "./context/NotificationContext";
 import ServiceDetail from '@/pages/ServiceDetail';
 import CustomerServiceOffers from '@/pages/customer/ServiceOffers';
 import DriverRequestsPage from "./pages/driver/Requests";
+import EditDriverProfile from "./pages/EditDriverProfile";
+import EditProfile from "./pages/EditProfile";
+import SellerDashboard from '@/pages/seller/Dashboard';
+import AddFoodItem from "./pages/seller/unifood/AddFoodItem";
+import SellerProfile from "./pages/SellerProfile";
+import { useEffect } from "react";
 
 const queryClient = new QueryClient();
 
@@ -64,11 +70,25 @@ const RoleRoute = ({
 }) => {
   const { user, isLoading } = useAuth();
   
+  useEffect(() => {
+    console.log('RoleRoute:', { 
+      allowedRoles,
+      userRole: user?.role,
+      isLoading
+    });
+  }, [user, allowedRoles, isLoading]);
+  
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
   
   if (!user || !allowedRoles.includes(user.role)) {
+    console.log('Access denied:', {
+      user: user ? 'exists' : 'missing',
+      userRole: user?.role,
+      allowedRoles,
+      redirect: 'to /'
+    });
     return <Navigate to="/" replace />;
   }
   
@@ -106,7 +126,7 @@ const AppRoutes = () => {
       <Route path="/seller/dashboard" element={
         <ProtectedRoute>
           <RoleRoute allowedRoles={['seller']}>
-            <UniShopSellerDashboard />
+            <SellerDashboard />
           </RoleRoute>
         </ProtectedRoute>
       } />
@@ -182,6 +202,7 @@ const AppRoutes = () => {
       <Route path="/driver/profile" element={
         <ProtectedRoute>
           <RoleRoute allowedRoles={['driver']}>
+            {console.log('Rendering DriverProfilePage')}
             <DriverProfilePage />
           </RoleRoute>
         </ProtectedRoute>
@@ -205,7 +226,7 @@ const AppRoutes = () => {
       <Route path="/seller/unishop/dashboard" element={
         <ProtectedRoute>
           <RoleRoute allowedRoles={['seller']}>
-            <UniShopSellerDashboard />
+            <Navigate to="/seller/dashboard" replace />
           </RoleRoute>
         </ProtectedRoute>
       } />
@@ -233,7 +254,7 @@ const AppRoutes = () => {
       <Route path="/seller/unifood/dashboard" element={
         <ProtectedRoute>
           <RoleRoute allowedRoles={['seller']}>
-            <UniFoodSellerDashboard />
+            <Navigate to="/seller/dashboard" replace />
           </RoleRoute>
         </ProtectedRoute>
       } />
@@ -244,10 +265,24 @@ const AppRoutes = () => {
           </RoleRoute>
         </ProtectedRoute>
       } />
+      <Route path="/seller/unifood/add-item" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['seller']}>
+            <AddFoodItem />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
       <Route path="/seller/orders" element={
         <ProtectedRoute>
           <RoleRoute allowedRoles={['seller']}>
             <OrdersPage />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
+      <Route path="/seller/profile" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['seller']}>
+            <SellerProfile />
           </RoleRoute>
         </ProtectedRoute>
       } />
@@ -303,6 +338,20 @@ const AppRoutes = () => {
       <Route path="/profile" element={
         <ProtectedRoute>
           <Profile />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/edit-driver-profile" element={
+        <ProtectedRoute>
+          <RoleRoute allowedRoles={['driver']}>
+            <EditDriverProfile />
+          </RoleRoute>
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/edit-profile" element={
+        <ProtectedRoute>
+          <EditProfile />
         </ProtectedRoute>
       } />
       

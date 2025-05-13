@@ -4,6 +4,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 
+type ServiceType = 'unishop' | 'unifood';
+
 interface BaseItem {
   name: string;
   description?: string;
@@ -13,10 +15,12 @@ interface BaseItem {
   is_available?: boolean;
   is_active?: boolean;
   user_id: string;
+  service_type?: ServiceType;
 }
 
 interface FormConfig<T extends BaseItem> {
   tableName: string;
+  serviceType?: ServiceType;
   editItem?: T | null;
   onSuccess: () => void;
   defaultValues: DefaultValues<T>;
@@ -24,6 +28,7 @@ interface FormConfig<T extends BaseItem> {
 
 export function useItemForm<T extends BaseItem>({ 
   tableName, 
+  serviceType = 'unishop',
   editItem, 
   onSuccess, 
   defaultValues 
@@ -31,38 +36,53 @@ export function useItemForm<T extends BaseItem>({
   const { user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(
+    editItem?.is_available ?? editItem?.is_active ?? true
+  );
 
-  const [isToggleOn, setIsToggleOn] = useState(true);
-
+  // Use react-hook-form with minimal interception
   const { 
     register, 
     handleSubmit, 
     formState: { errors }, 
     setValue, 
     watch, 
-    reset 
-  } = useForm<T>({ defaultValues });
+    reset,
+    getValues
+  } = useForm<T>({
+    defaultValues,
+    mode: 'onChange', // Changed from onBlur to onChange for better reactivity
+    shouldUnregister: false, // Don't unregister on unmount
+  });
 
   useEffect(() => {
     if (editItem) {
-      reset(editItem as DefaultValues<T>);
+      // Don't reset the form completely as it can cause flicker, just update values
+      Object.keys(editItem).forEach(key => {
+        if (key in defaultValues) {
+          setValue(key as FieldPath<T>, editItem[key as keyof T] as PathValue<T, FieldPath<T>>, {
+            shouldValidate: false, // Don't validate immediately
+            shouldDirty: false,    // Don't mark as dirty
+            shouldTouch: false     // Don't mark as touched
+          });
+        }
+      });
+      
       if (editItem.is_available !== undefined) {
-        setIsToggleOn(editItem.is_available);
+        setIsAvailable(editItem.is_available);
       } else if ((editItem as any).is_active !== undefined) {
-        setIsToggleOn((editItem as any).is_active);
-      } else {
-        setIsToggleOn(true);
+        setIsAvailable((editItem as any).is_active);
       }
-    } else {
-      reset(defaultValues);
-      setIsToggleOn(true);
     }
-  }, [editItem, reset, defaultValues]);
+  }, [editItem, setValue, defaultValues]);
 
+  // Watch the price field to format it
   const priceValue = watch('price' as FieldPath<T>);
+  
+  // Format the price for display
   const formattedPrice = typeof priceValue === 'number' && !isNaN(priceValue) 
     ? priceValue.toFixed(2) 
-    : (typeof defaultValues.price === 'number' ? defaultValues.price.toFixed(2) : '0.00');
+    : '0.00';
   
   const handleCategoryChange = (value: string) => {
     setValue('category' as FieldPath<T>, value as PathValue<T, FieldPath<T>>);
@@ -77,10 +97,6 @@ export function useItemForm<T extends BaseItem>({
       toast({ title: "Authentication Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
-    if (user.id !== formData.user_id && !(editItem && (editItem as any).id)) {
-      toast({ title: "Authorization Error", description: "Cannot create item for another user.", variant: "destructive" });
-      return;
-    }
 
     setIsSubmitting(true);
     
@@ -89,9 +105,12 @@ export function useItemForm<T extends BaseItem>({
       
       const dataToSubmit = {
         ...formData,
-        [availabilityFieldName]: isToggleOn,
-        user_id: user.id
+        [availabilityFieldName]: isAvailable,
+        user_id: user.id,
+        service_type: serviceType
       };
+      
+      console.log('Submitting form data:', dataToSubmit);
       
       if (editItem && (editItem as any).id) {
         const { error } = await supabase
@@ -125,13 +144,14 @@ export function useItemForm<T extends BaseItem>({
     handleSubmit,
     onSubmit: onSubmitHook,
     isSubmitting,
-    isToggleOn,
-    setIsToggleOn,
+    isAvailable,
+    setIsAvailable,
     formattedPrice,
     handleCategoryChange,
     handleCategoryIdChange,
     watch,
     setValue,
-    reset
+    reset,
+    getValues
   };
 }

@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import type { Order } from '@/types/unimove';
 import { fetchPendingOrders } from './OrderRepository';
 
@@ -11,6 +11,21 @@ interface DbPoint {
 interface DbOrder extends Omit<Order, 'pickup_coordinates' | 'delivery_coordinates'> {
   pickup_coordinates?: DbPoint | null;
   delivery_coordinates?: DbPoint | null;
+}
+
+// Interface for ride request payload
+interface RideRequestPayload {
+  id: string;
+  customer_id: string;
+  driver_id: string | null;
+  pickup_location: string;
+  dropoff_location: string;
+  status: string;
+  service_type: string;
+  price: number;
+  created_at: string;
+  updated_at: string;
+  [key: string]: any;
 }
 
 // Helper function to convert DB order to Order type
@@ -28,70 +43,11 @@ const convertDbOrderToOrder = (dbOrder: DbOrder): Order => {
 
 // Subscribe to new orders being created in the system
 export const subscribeToNewOrders = (onNewOrder: (order: Order) => void, driverId?: string) => {
-  console.log(`Setting up order subscription for driver ${driverId}`);
+  console.log(`Setting up order subscription for driver ${driverId || 'none'}`);
   
-  // Create a universal subscription to watch all changes to orders and ride_requests
-  const universalChannel = supabase
-    .channel('universal_order_updates')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public'
-      },
-      async (payload) => {
-        console.log('Universal database change detected:', payload);
-        
-        // Check if we need to reload orders based on the change
-        const shouldReload = (
-          // For orders table
-          (payload.table === 'orders' && 
-           payload.new?.service_type === 'unimove' && 
-           payload.new?.status === 'pending' && 
-           !payload.new?.driver_id) || 
-          // For ride_requests table
-          (payload.table === 'ride_requests' && 
-           payload.new?.service_type === 'unimove' && 
-           payload.new?.status === 'pending' && 
-           !payload.new?.driver_id)
-        );
-        
-        if (shouldReload) {
-          console.log('Detected relevant change, reloading pending orders');
-          const orders = await fetchPendingOrders(driverId);
-          console.log(`Found ${orders.length} pending orders after reload`);
-          
-          if (orders.length > 0) {
-            const newOrderId = payload.new?.id;
-            
-            // Try to find the specific order that changed
-            if (newOrderId) {
-              const matchingOrder = orders.find(o => o.id === newOrderId);
-              if (matchingOrder) {
-                console.log('Found matching order for the detected change:', matchingOrder);
-                onNewOrder(matchingOrder);
-                return;
-              }
-            }
-            
-            // If no specific order found, notify about new pending orders
-            const mostRecentOrder = orders.sort((a, b) => 
-              new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
-            )[0];
-            
-            console.log('Notifying about most recent order:', mostRecentOrder);
-            onNewOrder(mostRecentOrder);
-          }
-        }
-      }
-    )
-    .subscribe((status) => {
-      console.log('Universal subscription status:', status);
-    });
-  
-  // Create a subscription to orders table
+  // Subscribe directly to INSERT events on orders table for UniMove service
   const ordersChannel = supabase
-    .channel('new_orders')
+    .channel('unimove_orders_inserts')
     .on(
       'postgres_changes',
       {
@@ -101,16 +57,26 @@ export const subscribeToNewOrders = (onNewOrder: (order: Order) => void, driverI
         filter: "service_type=eq.unimove"
       },
       async (payload) => {
-        console.log('New order inserted:', payload);
-        if (payload.new) {
-          // Check if this is a pending order with no driver assigned
-          if (payload.new.status === 'pending' && !payload.new.driver_id) {
-            // Reload all pending orders to get the latest data, filtering out declined orders
-            const orders = await fetchPendingOrders(driverId);
-            const newOrder = orders.find(o => o.id === payload.new.id);
-            if (newOrder && !newOrder.driver_id) {
-              onNewOrder(newOrder);
+        console.log('New UniMove order inserted:', payload);
+        
+        if (payload.new && payload.new.status === 'pending' && !payload.new.driver_id) {
+          try {
+            // Get the full order data
+            const { data, error } = await supabase
+              .from('orders')
+              .select('*')
+              .eq('id', payload.new.id)
+              .single();
+              
+            if (error) throw error;
+            
+            if (data) {
+              console.log('Processing new order:', data);
+              const order = convertDbOrderToOrder(data as DbOrder);
+              onNewOrder(order);
             }
+          } catch (error) {
+            console.error('Error processing new order notification:', error);
           }
         }
       }
@@ -118,34 +84,93 @@ export const subscribeToNewOrders = (onNewOrder: (order: Order) => void, driverI
     .subscribe((status) => {
       console.log('Orders subscription status:', status);
     });
-
-  // Create a subscription to ride_requests table
+  
+  // Subscribe to status changes on orders (for updates to pending orders)
+  const ordersUpdateChannel = supabase
+    .channel('unimove_orders_updates')
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: "service_type=eq.unimove"
+      },
+      async (payload) => {
+        console.log('UniMove order updated:', payload);
+        
+        // If an order was updated to pending status
+        if (payload.new && 
+            payload.new.status === 'pending' && 
+            !payload.new.driver_id && 
+            payload.old?.status !== 'pending') {
+          
+          try {
+            // Get the full order data
+            const { data, error } = await supabase
+              .from('orders')
+              .select('*')
+              .eq('id', payload.new.id)
+              .single();
+              
+            if (error) throw error;
+            
+            if (data) {
+              console.log('Processing updated order that became pending:', data);
+              const order = convertDbOrderToOrder(data as DbOrder);
+              onNewOrder(order);
+            }
+          } catch (error) {
+            console.error('Error processing updated order notification:', error);
+          }
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('Orders updates subscription status:', status);
+    });
+  
+  // Subscribe to INSERT events on ride_requests table
   const ridesChannel = supabase
-    .channel('new_ride_requests')
+    .channel('unimove_ride_requests_inserts')
     .on(
       'postgres_changes',
       {
         event: 'INSERT',
         schema: 'public',
-        table: 'ride_requests' as any,
+        table: 'ride_requests',
       },
       async (payload) => {
         console.log('New ride request inserted:', payload);
+        
         if (payload.new) {
-          // Check if this is a pending ride with no driver assigned
-          if (payload.new.status === 'pending' && !payload.new.driver_id) {
-            // Reload all pending orders to get the latest data, filtering out declined orders
-            const orders = await fetchPendingOrders(driverId);
+          try {
+            // Type assertion for the payload
+            const rideRequest = payload.new as RideRequestPayload;
             
-            // Try to find the specific new ride request that was just inserted
-            const newRideId = payload.new.id;
-            if (newRideId) {
-              const newOrder = orders.find(o => o.id === newRideId);
-              if (newOrder && !newOrder.driver_id) {
-                onNewOrder(newOrder);
-                return;
-              }
+            // Only process pending rides with no driver assigned
+            if (rideRequest.status === 'pending' && !rideRequest.driver_id) {
+              // Map ride_request to Order format
+              const rideOrder: Order = {
+                id: rideRequest.id,
+                customer_id: rideRequest.customer_id,
+                driver_id: null,
+                pickup_address: rideRequest.pickup_location,
+                delivery_address: rideRequest.dropoff_location,
+                pickup_coordinates: null,
+                delivery_coordinates: null,
+                status: rideRequest.status,
+                service_type: rideRequest.service_type || 'unimove',
+                total_amount: rideRequest.price || 0,
+                created_at: rideRequest.created_at,
+                updated_at: rideRequest.updated_at
+              };
+              
+              console.log('Processing new ride request:', rideOrder);
+              onNewOrder(rideOrder);
             }
+          } catch (error) {
+            console.error('Error processing new ride request notification:', error);
           }
         }
       }
@@ -153,16 +178,46 @@ export const subscribeToNewOrders = (onNewOrder: (order: Order) => void, driverI
     .subscribe((status) => {
       console.log('Ride requests subscription status:', status);
     });
+  
+  // Create periodic polling as a fallback mechanism
+  const pollingInterval = setInterval(async () => {
+    console.log('Polling for new pending orders...');
+    try {
+      const pendingOrders = await fetchPendingOrders(driverId);
+      console.log(`Poll found ${pendingOrders.length} pending orders`);
+      
+      // Process any new orders found during polling
+      // We'll only notify about the most recent pending order to avoid spamming
+      if (pendingOrders.length > 0) {
+        const mostRecent = pendingOrders.sort((a, b) => 
+          new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+        )[0];
+        
+        // Store processed order IDs in local storage to avoid duplicate notifications
+        const processedKey = `processed_orders_${driverId || 'anonymous'}`;
+        const processedOrders = JSON.parse(localStorage.getItem(processedKey) || '[]');
+        
+        if (!processedOrders.includes(mostRecent.id)) {
+          console.log('Found unprocessed pending order during polling:', mostRecent);
+          onNewOrder(mostRecent);
+          
+          // Update processed orders list
+          processedOrders.push(mostRecent.id);
+          localStorage.setItem(processedKey, JSON.stringify(processedOrders));
+        }
+      }
+    } catch (error) {
+      console.error('Error during order polling:', error);
+    }
+  }, 60000); // Poll every minute as a fallback
 
   // Return all channels for proper cleanup
   return {
-    universalChannel,
-    ordersChannel,
-    ridesChannel,
     unsubscribe: () => {
       console.log('Unsubscribing from all order update channels');
-      supabase.removeChannel(universalChannel);
+      clearInterval(pollingInterval);
       supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(ordersUpdateChannel);
       supabase.removeChannel(ridesChannel);
     }
   };
@@ -184,10 +239,21 @@ export const subscribeToOrderUpdates = (orderId: string, onUpdate: (order: Order
       async (payload) => {
         console.log('Order update:', payload);
         if (payload.new) {
-          const orders = await fetchPendingOrders(driverId);
-          const updatedOrder = orders.find(o => o.id === orderId);
-          if (updatedOrder) {
-            onUpdate(updatedOrder);
+          try {
+            const { data, error } = await supabase
+              .from('orders')
+              .select('*')
+              .eq('id', orderId)
+              .single();
+              
+            if (error) throw error;
+            
+            if (data) {
+              const order = convertDbOrderToOrder(data as DbOrder);
+              onUpdate(order);
+            }
+          } catch (error) {
+            console.error('Error processing order update:', error);
           }
         }
       }
@@ -202,16 +268,35 @@ export const subscribeToOrderUpdates = (orderId: string, onUpdate: (order: Order
       {
         event: '*',
         schema: 'public',
-        table: 'ride_requests' as any,
+        table: 'ride_requests',
         filter: `id=eq.${orderId}`
       },
       async (payload) => {
         console.log('Ride request update:', payload);
         if (payload.new) {
-          const orders = await fetchPendingOrders(driverId);
-          const updatedOrder = orders.find(o => o.id === orderId);
-          if (updatedOrder) {
-            onUpdate(updatedOrder);
+          try {
+            // Type assertion for the payload
+            const rideRequest = payload.new as RideRequestPayload;
+            
+            // Map ride_request to Order format
+            const rideOrder: Order = {
+              id: rideRequest.id,
+              customer_id: rideRequest.customer_id,
+              driver_id: rideRequest.driver_id,
+              pickup_address: rideRequest.pickup_location,
+              delivery_address: rideRequest.dropoff_location,
+              pickup_coordinates: null,
+              delivery_coordinates: null,
+              status: rideRequest.status,
+              service_type: rideRequest.service_type || 'unimove',
+              total_amount: rideRequest.price || 0,
+              created_at: rideRequest.created_at,
+              updated_at: rideRequest.updated_at
+            };
+            
+            onUpdate(rideOrder);
+          } catch (error) {
+            console.error('Error processing ride request update:', error);
           }
         }
       }
@@ -220,8 +305,6 @@ export const subscribeToOrderUpdates = (orderId: string, onUpdate: (order: Order
 
   // Return both channels for proper cleanup
   return {
-    ordersChannel,
-    ridesChannel,
     unsubscribe: () => {
       supabase.removeChannel(ordersChannel);
       supabase.removeChannel(ridesChannel);

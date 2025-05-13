@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useItemForm } from '@/hooks/useItemForm';
 import FormHeader from '@/components/seller/forms/FormHeader';
 import FormFooter from '@/components/seller/forms/FormFooter';
@@ -25,6 +24,10 @@ const foodCategories = [
 ];
 
 const FoodItemForm: React.FC<FoodItemFormProps> = ({ onSuccess, onCancel, editItem }) => {
+  // Track local state for more responsive input
+  const [itemName, setItemName] = useState(editItem?.name || '');
+  const [itemDescription, setItemDescription] = useState(editItem?.description || '');
+  
   const defaultValues = {
     name: editItem?.name || '',
     description: editItem?.description || '',
@@ -44,13 +47,26 @@ const FoodItemForm: React.FC<FoodItemFormProps> = ({ onSuccess, onCancel, editIt
     isAvailable, 
     setIsAvailable, 
     formattedPrice, 
-    handleCategoryChange 
+    handleCategoryChange,
+    setValue
   } = useItemForm<NewFoodItem>({
     tableName: 'food_items',
+    serviceType: 'unifood',
     editItem,
     onSuccess,
     defaultValues
   });
+  
+  // Handle local changes and update form values
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setItemName(e.target.value);
+    setValue('name', e.target.value);
+  };
+  
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setItemDescription(e.target.value);
+    setValue('description', e.target.value);
+  };
 
   return (
     <div className="bg-white rounded-lg shadow p-5">
@@ -67,6 +83,8 @@ const FoodItemForm: React.FC<FoodItemFormProps> = ({ onSuccess, onCancel, editIt
           placeholder="Chicken Burger"
           register={register}
           errors={errors}
+          value={itemName}
+          onChange={handleNameChange}
         />
         
         <TextareaField 
@@ -74,6 +92,8 @@ const FoodItemForm: React.FC<FoodItemFormProps> = ({ onSuccess, onCancel, editIt
           label="Description"
           placeholder="Delicious grilled chicken with lettuce, tomato and special sauce..."
           register={register}
+          value={itemDescription}
+          onChange={handleDescriptionChange}
         />
         
         <div className="grid grid-cols-2 gap-4">

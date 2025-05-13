@@ -94,86 +94,73 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Helper function to get user data from Supabase and localStorage
   const getUserData = async (sessionUser: any) => {
-    try {
-      // First check if user has metadata (including role) from Supabase
-      const userMetadata = sessionUser.user_metadata;
-      console.log('User metadata from Supabase:', userMetadata);
-      
-      // Try to get user data from database if it exists
-      let dbUser = null;
-      try {
-        // Try profiles table first (preferred in Supabase)
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', sessionUser.id)
-          .single();
-          
-        if (profileError) {
-          console.error('Error fetching user from profiles:', profileError);
-          
-          // Fallback to users table if profiles doesn't work
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', sessionUser.id)
-            .single();
-            
-          if (userError) {
-            console.error('Error fetching user from database:', userError);
-          } else {
-            dbUser = userData;
-          }
-        } else {
-          dbUser = profileData;
-        }
-      } catch (dbError) {
-        console.error('Error getting user from database:', dbError);
-      }
-      
-      // Then check if we have stored user data
-      const storedUserJson = localStorage.getItem('user');
-      const storedUser = storedUserJson ? JSON.parse(storedUserJson) : null;
-      
-      if (storedUser) {
-        console.log('User data from localStorage:', storedUser);
-      }
-      
-      // Create user object with correct priority for role: 
-      // 1. Use role from Supabase metadata if available (most authoritative)
-      // 2. Use role from database if available
-      // 3. Use existing role from stored user if available
-      // 4. Fall back to 'customer' as default only if no role information exists
-      const role = userMetadata?.role || dbUser?.role || storedUser?.role || 'customer';
-      console.log('Determined user role:', role);
-      
-      // Create the complete user object with all available data
-      const userData: User = {
-        id: sessionUser.id,
-        name: userMetadata?.full_name || dbUser?.full_name || dbUser?.name || storedUser?.name || sessionUser.email?.split('@')[0] || 'User',
-        email: sessionUser.email || '',
-        role: role,
-        avatar_url: dbUser?.avatar_url || storedUser?.avatar,
-        seller_type: dbUser?.seller_type || storedUser?.seller_type,
-        driver_type: dbUser?.driver_type || storedUser?.driver_type,
-        freelancer_skill: dbUser?.freelancer_skill || storedUser?.freelancer_skill
-      };
-      
-      // Save the updated user data to localStorage
-      localStorage.setItem('user', JSON.stringify(userData));
-      console.log('Updated user data in localStorage:', userData);
-      
-      return userData;
-    } catch (error) {
-      console.error('Error getting user data:', error);
-      // Fallback to default user if there's an error
-      return {
-        id: sessionUser.id,
-        name: sessionUser.email?.split('@')[0] || 'User',
-        email: sessionUser.email || '',
-        role: sessionUser.user_metadata?.role || 'customer',
-      };
+    console.log('=== GET USER DATA DIAGNOSTICS ===');
+    console.log('Getting user data for session user:', sessionUser);
+    
+    // Initialize with default role
+    let userRole: UserRole = 'customer';
+    let sellerType: SellerType | null = null;
+    let driverType: DriverType | null = null;
+    let freelancerSkill: FreelancerSkill = null;
+    
+    // Try to get role from auth metadata first
+    if (sessionUser?.user_metadata?.role) {
+      userRole = sessionUser.user_metadata.role;
+      console.log('Found role in user_metadata:', userRole);
     }
+    
+    // Try to get from profiles table (more authoritative)
+    try {
+      console.log('Fetching profile data for user:', sessionUser?.id);
+      const { data: profileData, error } = await supabase
+        .from('profiles')
+        .select('role, seller_type, driver_type, freelancer_skill')
+        .eq('id', sessionUser?.id)
+        .single();
+        
+      console.log('Profile data from database:', profileData);
+      console.log('Profile error:', error);
+      
+      if (!error && profileData) {
+        // Only override role if it's set in the database
+        if (profileData.role) {
+          userRole = profileData.role;
+          console.log('Set role from profile data:', userRole);
+        }
+        
+        // Get additional role-specific data
+        sellerType = profileData.seller_type;
+        driverType = profileData.driver_type;
+        freelancerSkill = profileData.freelancer_skill;
+        
+        console.log('Role-specific data:', { 
+          sellerType, 
+          driverType, 
+          freelancerSkill 
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    }
+    
+    // Build user object with all the data we've gathered
+    const user: User = {
+      id: sessionUser.id,
+      email: sessionUser.email,
+      name: sessionUser.user_metadata?.full_name || sessionUser.user_metadata?.name || sessionUser.email?.split('@')[0],
+      full_name: sessionUser.user_metadata?.full_name || sessionUser.user_metadata?.name || sessionUser.email?.split('@')[0],
+      role: userRole,
+      seller_type: sellerType,
+      driver_type: driverType,
+      freelancer_skill: freelancerSkill,
+      aud: sessionUser.aud,
+      created_at: sessionUser.created_at,
+      app_metadata: sessionUser.app_metadata || {},
+      user_metadata: sessionUser.user_metadata || {}
+    };
+    
+    console.log('Final user object with role:', user);
+    return user;
   };
 
   // Helper function to ensure user exists in database
@@ -348,11 +335,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Set session explicitly to ensure auth state is updated
             setSession(data.session);
             
+            // First, try to get profile data from database
+            let dbRole = null;
+            try {
+              const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('role, driver_type, seller_type')
+                .eq('id', data.user.id)
+                .single();
+                
+              if (!profileError && profileData) {
+                dbRole = profileData.role;
+                console.log('Found role in database:', dbRole);
+                console.log('Found profile data:', profileData);
+              }
+            } catch (dbError) {
+              console.error('Error fetching profile from database:', dbError);
+            }
+            
             // The auth listener will handle setting the user state,
             // but we can manually trigger user data setup here for immediate response
             console.log('Getting user data for:', data.user.id);
             const userData = await getUserData(data.user);
-            console.log('User data returned:', userData);
+            
+            // Override with database role if available (most authoritative)
+            if (dbRole) {
+              userData.role = dbRole;
+              console.log('Using database role:', dbRole);
+            }
+            
+            console.log('User data with final role:', userData);
             setUser(userData);
             
             // Ensure user exists in database
@@ -361,23 +373,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             
             console.log('User data set successfully:', userData);
             
-            // If there's a role in metadata but not in local storage (or different),
-            // update local storage to match
-            const metadata = data.user.user_metadata;
-            console.log('User metadata:', metadata);
+            // Make sure the role in localStorage matches the one we determined
+            const userForStorage = {
+              ...userData,
+              role: userData.role // Ensure role is explicitly set
+            };
+            localStorage.setItem('user', JSON.stringify(userForStorage));
+            console.log('Updated localStorage with user data including role:', userData.role);
             
-            if (metadata && metadata.role) {
-              const storedUserJson = localStorage.getItem('user');
-              if (storedUserJson) {
-                const storedUser = JSON.parse(storedUserJson);
-                // Only update if different to avoid unnecessary writes
-                if (storedUser.role !== metadata.role) {
-                  storedUser.role = metadata.role;
-                  localStorage.setItem('user', JSON.stringify(storedUser));
-                  console.log('Updated user role in localStorage:', metadata.role);
-                }
-              }
-            }
             resolve(data);
           } else {
             console.error('Login successful but no user data returned');
@@ -420,7 +423,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (name: string, email: string, password: string, role: UserRole) => {
     setIsLoading(true);
     try {
-      console.log('Starting manual registration process for:', email);
+      console.log('Starting manual registration process for:', email, 'with role:', role);
       
       // WORKAROUND: Use a two-step approach to avoid database trigger issues
       
@@ -451,10 +454,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('Auth signup successful, got user ID:', data.user.id);
       
-      // Store the user in local state, simplified version avoiding TS errors
+      // Step 2: Create or update the profile with the correct role
+      try {
+        console.log('Creating user profile with role:', role);
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: data.user.id,
+            full_name: name,
+            role: role,
+            updated_at: new Date().toISOString()
+          });
+        
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          // Continue anyway since we can fall back on auth metadata
+        } else {
+          console.log('Successfully created profile with role:', role);
+        }
+      } catch (profileErr) {
+        console.error('Error in profile creation:', profileErr);
+        // Continue with authentication
+      }
+      
+      // Store the user in local state
       const userData = {
         id: data.user.id,
         email: email,
+        name: name,
+        role: role,
         user_metadata: {
           full_name: name,
           role: role
@@ -463,9 +491,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } as unknown as User;
       
       setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
       
-      console.log('Registration successful! User will be redirected to appropriate page.');
+      // Make sure role is explicitly set in localStorage
+      const userForStorage = {
+        id: data.user.id,
+        email: email,
+        name: name,
+        role: role,  // Explicitly set role
+        created_at: new Date().toISOString()
+      };
+      
+      localStorage.setItem('user', JSON.stringify(userForStorage));
+      console.log('Registration successful! User saved to localStorage with role:', role);
+      
       return;
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -498,32 +536,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateUserRole = async (role: UserRole) => {
-    if (user) {
-      try {
-        // First update the role in Supabase user metadata
-        await supabase.auth.updateUser({
-          data: { role }
-        });
-        
-        // Then update the local user object
-        const updatedUser = { ...user, role };
-        setUser(updatedUser);
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        
-        // Optionally also update the role in the users table if you have one
-        try {
-          await supabase
-            .from('users')
-            .update({ role })
-            .eq('id', user.id);
-        } catch (dbError) {
-          console.error('Error updating role in database:', dbError);
-          // Continue anyway since we updated the auth metadata
-        }
-      } catch (error) {
-        console.error('Error updating user role:', error);
-        throw error;
+    try {
+      if (!user || !user.id) {
+        console.error('No user logged in');
+        return;
       }
+
+      console.log(`Updating user role to: ${role}`);
+      
+      // Update in Supabase profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ 
+          role: role,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+      
+      if (profileError) {
+        console.error('Error updating role in profiles table:', profileError);
+        throw profileError;
+      }
+      
+      // Ensure the user table is updated as well for consistency 
+      const { error: userError } = await supabase
+        .from('users')
+        .update({ 
+          role: role,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', user.id);
+      
+      if (userError) {
+        console.error('Error updating role in users table:', userError);
+        // Continue anyway since profiles is more important
+      }
+      
+      // Update the user in context
+      const updatedUser: User = { ...user, role };
+      setUser(updatedUser);
+      
+      // Also update in local storage 
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      console.log('Role updated successfully to:', role);
+      
+      // Redirect to the appropriate page based on new role
+      if (role === 'seller') {
+        // For seller, redirect to seller profile
+        window.location.href = '/seller/profile';
+      } else if (role === 'driver') {
+        // For driver, redirect to driver profile
+        window.location.href = '/driver/profile';
+      } else if (role === 'freelancer') {
+        // For freelancer, redirect to freelancer dashboard
+        window.location.href = '/freelancer/dashboard';
+      } else {
+        // For customer, redirect to main dashboard
+        window.location.href = '/';
+      }
+      
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      throw error;
     }
   };
 

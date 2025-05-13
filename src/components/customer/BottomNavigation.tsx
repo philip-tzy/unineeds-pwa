@@ -48,7 +48,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick, b
         onClick={onClick}
         className={cn(
           "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-          isActive ? "text-[#9b87f5]" : "text-gray-500"
+          isActive ? "text-[#003160]" : "text-gray-500"
         )}
       >
         {content}
@@ -60,8 +60,8 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick, b
     <Link 
       to={to} 
       className={cn(
-        "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-        isActive ? "text-[#9b87f5]" : "text-gray-500"
+        "flex flex-1 flex-col items-center justify-center space-y-1 text-gray-500 transition-colors",
+        isActive ? "text-[#003160]" : "text-gray-500"
       )}
     >
       {content}

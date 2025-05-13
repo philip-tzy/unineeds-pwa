@@ -1,6 +1,12 @@
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
+import { initDatabaseFixes } from './helpers/databaseFixes';
+import { checkDatabasePermissions } from './integrations/supabase/client';
+import { initRealtimeFixes } from './helpers/realtimeFixes';
+
+// Initialize realtime fixes first (this might update the Supabase URL)
+initRealtimeFixes();
 
 // Setup global fetch timeout - 30 seconds max for any fetch request
 const originalFetch = window.fetch;
@@ -70,6 +76,13 @@ const clearAllCaches = async () => {
 
 // Make clearAllCaches available globally for debugging
 (window as any).clearAllCaches = clearAllCaches;
+
+// Initialize database fixes to resolve permission issues
+// This needs to run early to fix errors before components mount
+initDatabaseFixes();
+
+// Make database permission check available globally for debugging
+(window as any).checkDatabasePermissions = checkDatabasePermissions;
 
 // Register service worker for PWA with improved error handling
 if ('serviceWorker' in navigator) {

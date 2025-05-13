@@ -1,0 +1,13 @@
+{
+  "name": "freelancer-implementation",
+  "version": "1.0.0",
+  "description": "Script to implement freelancer system",
+  "main": "implement_freelancer_system.js",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.4"
+  },
+  "scripts": {
+    "implement": "node implement_freelancer_system.js"
+  }
+} 

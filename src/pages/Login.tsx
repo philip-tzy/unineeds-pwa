@@ -80,85 +80,36 @@ const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Reset error message
+    
+    if (!isOnline) {
+      setErrorMessage('Perangkat anda sedang offline. Silakan aktifkan koneksi internet dan coba lagi.');
+      return;
+    }
+    
+    setIsSubmitting(true);
     setErrorMessage('');
     
-    // Add diagnostic logging
-    console.log('=== LOGIN DIAGNOSTICS ===');
-    console.log('Network status:', navigator.onLine ? 'Online' : 'Offline');
-    console.log('Browser:', navigator.userAgent);
-    console.log('Timestamp:', new Date().toString());
-    console.log('Email input:', email);
-    console.log('Password length:', password ? password.length : 0);
-    
-    // Check if online
-    if (!navigator.onLine) {
-      setIsOnline(false);
-      setErrorMessage('Tidak ada koneksi internet. Pastikan Anda terhubung ke internet.');
-      toast({
-        title: "Error",
-        description: "Tidak ada koneksi internet. Pastikan Anda terhubung ke internet.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    if (!email || !password) {
-      setErrorMessage('Mohon isi semua field');
-      toast({
-        title: "Error",
-        description: "Mohon isi semua field",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
     try {
-      console.log('Attempting login with email:', email);
-      localStorage.setItem('lastLoginAttempt', new Date().toString());
+      // Record time of this login attempt
+      localStorage.setItem('lastLoginAttempt', new Date().toISOString());
       
-      // Test Supabase connection
-      let supabaseConnectionOk = false;
-      try {
-        console.log('Testing Supabase connection...');
-        // Add this line to check if Supabase is reachable
-        const { data, error } = await supabase.from('users').select('count').limit(1);
-        if (error) {
-          console.error('Supabase connection test failed:', error);
-          if (error.message.includes('relation "users" does not exist')) {
-            // This means we can connect to Supabase, but the table doesn't exist
-            // This is actually okay for new installations
-            supabaseConnectionOk = true;
-            console.log('Users table does not exist, but connection is OK');
-          }
-        } else {
-          console.log('Supabase connection test succeeded:', data);
-          supabaseConnectionOk = true;
-        }
-      } catch (connError) {
-        console.error('Error testing Supabase connection:', connError);
-      }
+      // Attempt login
+      await login(email, password);
       
-      // Set a local timeout to prevent UI freezing if there's network issues
-      const loginPromise = login(email, password);
+      // Login successful - let's add logging
+      console.log('Login successful! Checking user role for redirection');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      console.log('User from localStorage:', user);
+      console.log('User role:', user.role);
       
-      // Create a timeout promise
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('UI Timeout')), 18000)
-      );
-      
-      // Race between login and local UI timeout
-      await Promise.race([loginPromise, timeoutPromise]);
-      
-      console.log('Login successful');
+      // Success message
       toast({
-        title: "Berhasil",
-        description: "Berhasil masuk",
+        title: "Login Berhasil",
+        description: `Selamat datang kembali${user?.name ? ', ' + user.name : ''}!`,
       });
       
-      // Reset retry count on success
-      setRetryCount(0);
+      // Should auto-redirect based on role
+      
     } catch (error: any) {
       console.error('Login error:', error);
       setRetryCount(prev => prev + 1);

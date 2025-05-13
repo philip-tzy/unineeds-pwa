@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "update-seller-schema": "node src/scripts/apply_seller_schema.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

@@ -83,3 +83,19 @@ export function getRelativeTime(dateString: string | null | undefined): string {
   const diffInYears = Math.floor(diffInMonths / 12);
   return `${diffInYears} year${diffInYears > 1 ? 's' : ''} ago`;
 }
+
+/**
+ * Format a number as a currency string (USD by default)
+ */
+export const formatCurrency = (
+  amount: number, 
+  currency: string = 'USD', 
+  locale: string = 'en-US'
+): string => {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};

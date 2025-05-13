@@ -48,7 +48,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick, b
         onClick={onClick}
         className={cn(
           "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-          isActive ? "text-[#9b87f5]" : "text-gray-500"
+          isActive ? "text-[#003160]" : "text-gray-500"
         )}
       >
         {content}
@@ -60,8 +60,8 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, onClick, b
     <Link 
       to={to} 
       className={cn(
-        "flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200",
-        isActive ? "text-[#9b87f5]" : "text-gray-500"
+        "flex flex-1 flex-col items-center justify-center space-y-1 text-gray-500 transition-colors",
+        isActive ? "text-[#003160]" : "text-gray-500"
       )}
     >
       {content}
@@ -173,35 +173,12 @@ const FreelancerBottomNavigation: React.FC = () => {
         isActive={path === '/freelancer/offers'}
         badge={pendingOffers}
       />
-      <DropdownMenu>
-        <DropdownMenuTrigger className="flex flex-1 flex-col items-center justify-center space-y-1 transition-all duration-200 text-gray-500">
-          <div className={cn(
-            "transition-transform duration-300",
-            path === '/profile' ? "scale-110" : "scale-100"
-          )}>
-            <User size={20} />
-          </div>
-          <span className="text-[10px] font-medium">Account</span>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[160px]">
-          <DropdownMenuLabel>Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link to="/profile" className="cursor-pointer w-full">Profile</Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link to="/freelancer/skills" className="cursor-pointer w-full">Manage Skills</Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link to="/freelancer/services" className="cursor-pointer w-full">Manage Services</Link>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-red-500 cursor-pointer" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Logout</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <NavItem 
+        to="/profile" 
+        icon={<User size={20} />} 
+        label="Account" 
+        isActive={path === '/profile'}
+      />
     </div>
   );
 };

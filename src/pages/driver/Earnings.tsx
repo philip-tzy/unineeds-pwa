@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Calendar, ChevronDown, DollarSign } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
@@ -7,13 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-
-interface EarningsSummary {
-  today: number;
-  week: number;
-  month: number;
-  total: number;
-}
+import { useDriverEarnings } from '@/hooks/useRealtimeDriverData';
 
 interface Transaction {
   id: string;
@@ -28,89 +22,19 @@ interface Transaction {
 const DriverEarningsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [earnings, setEarnings] = useState<EarningsSummary>({
-    today: 0,
-    week: 0,
-    month: 0,
-    total: 0
-  });
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
+  
+  // Use our custom hook for earnings data
+  const earnings = useDriverEarnings(user?.id);
 
   useEffect(() => {
     if (!user?.id) return;
 
-    const fetchEarnings = async () => {
+    const fetchTransactions = async () => {
       try {
         setLoading(true);
-        
-        // In a real implementation, you would fetch this data from the backend
-        // For now, using mock data
-        const mockEarnings = {
-          today: 35.75,
-          week: 247.50,
-          month: 1250.25,
-          total: 3680.75
-        };
-
-        // Simulating API call delay
-        setTimeout(() => {
-          setEarnings(mockEarnings);
-          
-          // Mock transactions
-          const mockTransactions = [
-            {
-              id: '1',
-              amount: 12.50,
-              status: 'completed',
-              created_at: new Date().toISOString(),
-              order_type: 'unimove',
-              customer_name: 'John Doe',
-              order_id: 'ORD-12345'
-            },
-            {
-              id: '2',
-              amount: 8.75,
-              status: 'completed',
-              created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-              order_type: 'unimove',
-              customer_name: 'Sarah Miller',
-              order_id: 'ORD-12346'
-            },
-            {
-              id: '3',
-              amount: 14.50,
-              status: 'completed',
-              created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-              order_type: 'unisend',
-              customer_name: 'Mike Johnson',
-              order_id: 'ORD-12347'
-            }
-          ];
-          
-          setTransactions(mockTransactions);
-          setLoading(false);
-        }, 1000);
-
-        // In a real implementation, you would fetch from Supabase like this:
-        /*
-        const { data, error } = await supabase
-          .from('driver_earnings')
-          .select('*')
-          .eq('driver_id', user.id)
-          .single();
-          
-        if (error) throw error;
-        
-        if (data) {
-          setEarnings({
-            today: data.today_earnings || 0,
-            week: data.weekly_earnings || 0,
-            month: data.monthly_earnings || 0,
-            total: data.total_earnings || 0
-          });
-        }
         
         // Fetch recent transactions
         const { data: transactionsData, error: transactionsError } = await supabase
@@ -120,21 +44,44 @@ const DriverEarningsPage: React.FC = () => {
           .order('created_at', { ascending: false })
           .limit(10);
           
-        if (transactionsError) throw transactionsError;
-        
-        if (transactionsData) {
+        if (transactionsError) {
+          console.error('Error fetching transactions:', transactionsError);
+          setTransactions([]);
+        } else if (transactionsData) {
           setTransactions(transactionsData);
+        } else {
+          setTransactions([]);
         }
-        */
-        
       } catch (error) {
-        console.error('Error fetching earnings data:', error);
+        console.error('Error fetching transactions data:', error);
+        setTransactions([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchEarnings();
+    fetchTransactions();
+    
+    // Set up realtime listener for transactions
+    const transactionsSubscription = supabase
+      .channel('driver_transactions_changes')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'driver_transactions',
+        filter: `driver_id=eq.${user.id}`
+      }, (payload) => {
+        console.log('New transaction:', payload);
+        if (payload.new) {
+          setTransactions(prev => [payload.new, ...prev.slice(0, 9)]);
+        }
+      })
+      .subscribe();
+    
+    // Clean up subscription when component unmounts
+    return () => {
+      transactionsSubscription.unsubscribe();
+    };
   }, [user?.id]);
 
   return (
@@ -216,7 +163,7 @@ const DriverEarningsPage: React.FC = () => {
         {/* Transactions */}
         <h2 className="text-lg font-medium mb-3">Recent Transactions</h2>
         
-        {loading ? (
+        {loading || earnings.isLoading ? (
           <div className="text-center py-10">
             <p>Loading transactions...</p>
           </div>
@@ -255,7 +202,7 @@ const DriverEarningsPage: React.FC = () => {
       </div>
       
       {/* Bottom Navigation */}
-      <DriverBottomNavigation />
+      <DriverBottomNavigation driverType={user?.driver_type} />
     </div>
   );
 };
